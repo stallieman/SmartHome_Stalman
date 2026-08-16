@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "minor_version": 3,
+  "key": "energy",
+  "data": {
+    "energy_sources": [
+      {
+        "type": "grid",
+        "stat_energy_from": "sensor.p1_meter_energy_import",
+        "stat_energy_to": "sensor.p1_meter_energy_export",
+        "stat_cost": null,
+        "stat_compensation": null,
+        "entity_energy_price": null,
+        "number_energy_price": null,
+        "entity_energy_price_export": null,
+        "number_energy_price_export": null,
+        "cost_adjustment_day": 0.0,
+        "name": "Stroomnet"
+      },
+      {
+        "type": "gas",
+        "stat_energy_from": "sensor.gas_meter_gas",
+        "stat_cost": null,
+        "entity_energy_price": null,
+        "number_energy_price": null
+      },
+      {
+        "type": "solar",
+        "stat_energy_from": "sensor.stalman_total_energy_today",
+        "config_entry_solar_forecast": null,
+        "name": "Zonnepanelen",
+        "stat_rate": "sensor.stalman_total_output_power"
+      }
+    ],
+    "device_consumption": [],
+    "device_consumption_water": []
+  }
+}

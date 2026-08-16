@@ -1,0 +1,25 @@
+# Home Assistant runtime and private state
+config/.cloud/
+config/.cache/
+config/.storage/*
+!config/.storage/energy
+config/.ha_run.lock
+config/.HA_VERSION
+config/deps/
+config/tts/
+
+# Credentials and certificates
+config/secrets.yaml
+config/**/*.pem
+config/**/*.key
+
+# Databases and logs
+config/*.db
+config/*.db-*
+config/*.log
+config/*.log.*
+
+# Editor and OS files
+.DS_Store
+*.swp
+*~
