@@ -4,7 +4,7 @@ Afzonderlijk YAML-dashboard voor Home Assistant 2026.10.4, voorbereid op 30 okto
 
 ## Bestanden
 
-- `config/dashboards/energie_thuisbatterij.yaml`: drie tabbladen, 47 ingebouwde kaarten.
+- `config/dashboards/energie_thuisbatterij.yaml`: drie tabbladen, 43 ingebouwde kaarten.
 - `config/packages/energie_thuisbatterij.yaml`: twee templates, drie invoervelden, één bevestiging.
 - `config/themes/stalman_nacht.yaml`: donker thema met mintgroene en amberkleurige accenten.
 - `docs/activation.example.yaml`: te beoordelen registratiefragment; niet automatisch geladen.
@@ -74,3 +74,20 @@ Gecontroleerd tegen de officiële documentatie met versieaanduiding 2026.10.4:
 - [Getalhelpers en herstellen van invoer](https://www.home-assistant.io/integrations/input_number/)
 
 De geïnstalleerde Battery Simulator-broncode (`sensor.py` en gerichte energieberekeningen in `__init__.py`) is alleen gelezen om de eenheden, herstelwerking en totalen te duiden. Er is geen integratiecode gekopieerd of aangepast.
+
+
+## Herontwerp Overzicht
+
+Het eerste tabblad heet nu **Overzicht**; het bestaande pad `energie` is behouden. De overige twee YAML-views zijn inhoudelijk exact gelijk aan commit `f9baab7` (in deze repository heten die **Simulatie** en **Analyse**; er zijn lokaal geen views met de namen Grafieken of Batterij & €). Er zijn geen tabbladen vervangen of toegevoegd.
+
+Vier secties vormen maximaal twee kolommen: Actueel, Vandaag, Energiestromen en Verbruik. Op de iPhone worden secties onder elkaar geplaatst; de cijferkaarten staan per twee. Native Markdown-kaarten gebruiken grote cijfers en expliciete eenheden. Kleuren en thema blijven behouden. Netto P1-vermogen toont + voor afname en − voor teruglevering. De batterijkaart bevat zowel SoC als laad-/ontlaadvermogen in W en het label simulatie.
+
+Vijf nieuwe `utility_meter`-dagmeters volgen import, export, zonneproductie, bespaarde import en geladen batterij-energie. Een aanvullende template bepaalt huisverbruik als import + zon − export; een tweede berekent het dagscenario met dezelfde bevestigde vaste tariefaannames als het bestaande totale scenario. De eerste dag bevat alleen metingen sinds installatie; dit staat kort in de interface. Er wordt geen eerdere daghistorie gereconstrueerd. Verlies van brondata maakt nieuwe templates onbeschikbaar. Laat de simulator niet resetten midden op een vergelijkingsdag.
+
+De energiestroomvisualisatie en daggrafiek gebruiken centrale Recorder-statistieken, met een eigen collectie `energy_stalman_overzicht` zonder datumkiezer. Ze tonen standaard vandaag. De dagmeters kunnen op de eerste installatiedag minder historie bevatten dan die energiekaarten. De grafiek toont elektriciteitsverbruik in kWh per tijdvak; actuele W staan bovenaan. De virtuele batterij wordt niet aan de werkelijke energiestromen toegevoegd.
+
+De nieuwe besparingskaart toont **Nog niet beschikbaar** bij ontbrekende brondata of onbevestigde tarieven. Een bevestigde nulprijs is wel toegestaan. De uitkomst blijft een scenario, geen werkelijke eurobesparing. Tarieven, saldering en laadstrategie moeten nog worden bevestigd.
+
+Voor installatie van deze revisie zijn alleen de dashboard-YAML en package-YAML veranderd. Er zijn geen wijzigingen nodig aan hoofdconfiguratie, dashboardregistratie of thema als de eerdere installatie actief is. Nieuwe dagmeters vereisen configuratiecontrole en een passende herlaad-/herstartprocedure, uitsluitend na afzonderlijke toestemming. Er is tijdens dit herontwerp niets op Ubuntu gewijzigd.
+
+Aanvullende bronnen: [Utility Meter en eerste onvolledige cyclus](https://www.home-assistant.io/integrations/utility_meter/) en [Markdown-kaarten met templates](https://www.home-assistant.io/dashboards/markdown/).

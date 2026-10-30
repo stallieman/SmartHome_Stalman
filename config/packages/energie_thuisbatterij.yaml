@@ -48,3 +48,49 @@ template:
     state: '{{ (states(''sensor.marstek_venus_e_5_12kwh_3nd_gen_total_energy_saved'') | float(0) * states(''input_number.stalman_importtarief'')
       | float(0) - states(''sensor.marstek_venus_e_5_12kwh_3nd_gen_battery_energy_in'') | float(0) * states(''input_number.stalman_exporttarief'')
       | float(0)) | round(2) }}'
+  - name: Stalman huis vandaag
+    unique_id: stalman_huis_vandaag
+    default_entity_id: sensor.stalman_huis_vandaag
+    unit_of_measurement: kWh
+    device_class: energy
+    availability: '{{ is_number(states(''sensor.stalman_import_vandaag'')) and is_number(states(''sensor.stalman_export_vandaag''))
+      and is_number(states(''sensor.stalman_zon_vandaag'')) }}'
+    state: '{{ ([0, states(''sensor.stalman_import_vandaag'') | float(0) + states(''sensor.stalman_zon_vandaag'')
+      | float(0) - states(''sensor.stalman_export_vandaag'') | float(0)] | max) | round(3) }}'
+  - name: Stalman batterijbesparing vandaag
+    unique_id: stalman_batterijbesparing_vandaag
+    default_entity_id: sensor.stalman_batterijbesparing_vandaag
+    unit_of_measurement: EUR
+    device_class: monetary
+    availability: '{{ is_state(''input_boolean.stalman_tarieven_bevestigd'', ''on'') and is_number(states(''sensor.stalman_bespaard_vandaag''))
+      and is_number(states(''sensor.stalman_geladen_vandaag'')) and is_number(states(''input_number.stalman_importtarief''))
+      and is_number(states(''input_number.stalman_exporttarief'')) }}'
+    state: '{{ (states(''sensor.stalman_bespaard_vandaag'') | float(0) * states(''input_number.stalman_importtarief'')
+      | float(0) - states(''sensor.stalman_geladen_vandaag'') | float(0) * states(''input_number.stalman_exporttarief'')
+      | float(0)) | round(2) }}'
+utility_meter:
+  stalman_import_vandaag:
+    source: sensor.p1_meter_energie_import
+    cycle: daily
+    periodically_resetting: true
+    always_available: false
+  stalman_export_vandaag:
+    source: sensor.p1_meter_energie_export
+    cycle: daily
+    periodically_resetting: true
+    always_available: false
+  stalman_zon_vandaag:
+    source: sensor.stalman_total_energieopbrengst_levenslang
+    cycle: daily
+    periodically_resetting: true
+    always_available: false
+  stalman_bespaard_vandaag:
+    source: sensor.marstek_venus_e_5_12kwh_3nd_gen_total_energy_saved
+    cycle: daily
+    periodically_resetting: true
+    always_available: false
+  stalman_geladen_vandaag:
+    source: sensor.marstek_venus_e_5_12kwh_3nd_gen_battery_energy_in
+    cycle: daily
+    periodically_resetting: true
+    always_available: false

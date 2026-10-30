@@ -1,109 +1,201 @@
 title: Energie & Thuisbatterij · YAML
 views:
-- title: Energie
+- title: Overzicht
   path: energie
   icon: mdi:home-lightning-bolt
   type: sections
-  max_columns: 3
+  max_columns: 2
   theme: Stalman Nacht
   sections:
   - type: grid
     cards:
     - type: heading
-      heading: Nu in huis
+      heading: Actueel
       icon: mdi:flash
     - type: markdown
-      content: '## Energie & Thuisbatterij
-
-        Werkelijke metingen · HomeWizard P1 + Growatt
+      content: 'Huis · berekend
 
 
-        De batterij staat apart onder **Simulatie**.'
-    - type: tile
-      entity: sensor.stalman_woningvermogen
-      name: Woning · berekend
-      tap_action:
-        action: more-info
-      icon: mdi:home-lightning-bolt
-      color: amber
-    - type: tile
-      entity: sensor.p1_meter_vermogen
-      name: Net · + import / − export
-      tap_action:
-        action: more-info
-      icon: mdi:transmission-tower
-      color: blue
-    - type: tile
-      entity: sensor.stalman_total_output_power
-      name: Zonnepanelen · actueel
-      tap_action:
-        action: more-info
-      icon: mdi:solar-power
-      color: amber
+        {% set v = states(''sensor.stalman_woningvermogen'') %}
+
+        {% if is_number(v) %}
+
+        # {{ (v | float * 1) | round(0) }} W
+
+        {% else %}
+
+        **Nog niet beschikbaar**
+
+        {% endif %}'
+      grid_options:
+        columns: 6
+        rows: auto
     - type: markdown
-      content: Woningvermogen = P1-netvermogen + Growatt-productie. Bronnen verversen op verschillende momenten;
-        dit is een indicatie, geen gesynchroniseerde meting.
+      content: 'Net · + afname / − teruglevering
+
+
+        {% set v = states(''sensor.p1_meter_vermogen'') %}
+
+        {% if is_number(v) %}
+
+        # {{ (v | float * 1) | round(0) }} W
+
+        {% else %}
+
+        **Nog niet beschikbaar**
+
+        {% endif %}'
+      grid_options:
+        columns: 6
+        rows: auto
+    - type: markdown
+      content: 'Zonnepanelen
+
+
+        {% set v = states(''sensor.stalman_total_output_power'') %}
+
+        {% if is_number(v) %}
+
+        # {{ (v | float * 1) | round(0) }} W
+
+        {% else %}
+
+        **Nog niet beschikbaar**
+
+        {% endif %}'
+      grid_options:
+        columns: 6
+        rows: auto
+    - type: markdown
+      content: 'Marstek · simulatie
+
+
+        {% set v = states(''sensor.marstek_venus_e_5_12kwh_3nd_gen_state_of_charge'') %}
+
+        {% if is_number(v) %}
+
+        # {{ (v | float * 1) | round(0) }} %
+
+        {% else %}
+
+        **Nog niet beschikbaar**
+
+        {% endif %}
+
+        {% set c = states(''sensor.marstek_venus_e_5_12kwh_3nd_gen_current_charging_rate'') %}
+
+        {% set u = states(''sensor.marstek_venus_e_5_12kwh_3nd_gen_current_discharging_rate'') %}
+
+        {% if is_number(c) and is_number(u) %}
+
+        Laden {{ (c | float * 1000) | round(0) }} W · Ontladen {{ (u | float * 1000) | round(0) }} W
+
+        {% else %}
+
+        Laadvermogen nog niet beschikbaar
+
+        {% endif %}'
+      grid_options:
+        columns: 6
+        rows: auto
   - type: grid
     cards:
     - type: heading
-      heading: Energiestromen
+      heading: Vandaag
+      icon: mdi:calendar-today
+    - type: markdown
+      content: 'Huisverbruik
+
+
+        {% set v = states(''sensor.stalman_huis_vandaag'') %}
+
+        {% if is_number(v) %}
+
+        # {{ (v | float * 1) | round(2) }} kWh
+
+        {% else %}
+
+        **Nog niet beschikbaar**
+
+        {% endif %}'
+      grid_options:
+        columns: 6
+        rows: auto
+    - type: markdown
+      content: 'Netafname
+
+
+        {% set v = states(''sensor.stalman_import_vandaag'') %}
+
+        {% if is_number(v) %}
+
+        # {{ (v | float * 1) | round(2) }} kWh
+
+        {% else %}
+
+        **Nog niet beschikbaar**
+
+        {% endif %}'
+      grid_options:
+        columns: 6
+        rows: auto
+    - type: markdown
+      content: 'Teruglevering
+
+
+        {% set v = states(''sensor.stalman_export_vandaag'') %}
+
+        {% if is_number(v) %}
+
+        # {{ (v | float * 1) | round(2) }} kWh
+
+        {% else %}
+
+        **Nog niet beschikbaar**
+
+        {% endif %}'
+      grid_options:
+        columns: 6
+        rows: auto
+    - type: markdown
+      content: 'Batterijbesparing · simulatie
+
+
+        {% set v = states(''sensor.stalman_batterijbesparing_vandaag'') %}
+
+        {% if is_number(v) %}
+
+        # {{ (v | float * 1) | round(2) }} €
+
+        {% else %}
+
+        **Nog niet beschikbaar**
+
+        {% endif %}'
+      grid_options:
+        columns: 6
+        rows: auto
+    - type: markdown
+      content: 'Dagmeters: eerste dag vanaf installatie.'
+      text_only: true
+      grid_options:
+        columns: 12
+        rows: auto
+  - type: grid
+    cards:
+    - type: heading
+      heading: Energiestromen · vandaag
       icon: mdi:transmission-tower
-    - type: energy-date-selection
-      collection_key: energy_stalman
     - type: energy-distribution
-      collection_key: energy_stalman
-      title: Net · woning · zon
-    - type: energy-usage-graph
-      collection_key: energy_stalman
-      title: Elektriciteitsverbruik
-    - type: markdown
-      content: De datumkeuze geldt voor de energiekaarten. Actuele tegels en 24-uursgrafieken houden hun eigen tijdvenster.
+      collection_key: energy_stalman_overzicht
+      link_dashboard: false
   - type: grid
     cards:
     - type: heading
-      heading: Zon & gas
-      icon: mdi:solar-power
-    - type: tile
-      entity: sensor.stalman_total_energy_today
-      name: Zonneproductie vandaag
-      tap_action:
-        action: more-info
-      icon: mdi:white-balance-sunny
-      color: amber
-    - type: energy-solar-graph
-      collection_key: energy_stalman
-      title: Zonneproductie · gekozen periode
-    - type: energy-gas-graph
-      collection_key: energy_stalman
-      title: Gas · gekozen periode
-    - type: entities
-      title: Cumulatieve meterstanden
-      show_header_toggle: false
-      entities:
-      - entity: sensor.p1_meter_energie_import
-        name: Netimport
-      - entity: sensor.p1_meter_energie_export
-        name: Netexport
-      - entity: sensor.stalman_total_energieopbrengst_levenslang
-        name: Zonneproductie totaal
-      - entity: sensor.gas_meter_gas
-        name: Gas totaal
-  - type: grid
-    cards:
-    - type: heading
-      heading: Vermogen · afgelopen 24 uur
+      heading: Verbruik · vandaag
       icon: mdi:chart-line
-    - type: history-graph
-      title: P1 en zonnepanelen
-      hours_to_show: 24
-      entities:
-      - entity: sensor.p1_meter_vermogen
-        name: Net (W)
-      - entity: sensor.stalman_total_output_power
-        name: Zon (W)
-    - type: markdown
-      content: Ontbrekende statistieken worden niet aangevuld. Energiekaarten gebruiken de bestaande centrale energieconfiguratie;
-        de simulatie wordt daar niet aan toegevoegd.
+    - type: energy-usage-graph
+      collection_key: energy_stalman_overzicht
 - title: Simulatie
   path: simulatie
   icon: mdi:battery-clock

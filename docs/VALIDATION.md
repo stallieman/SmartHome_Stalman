@@ -17,3 +17,16 @@ python3 -m venv /tmp/stalman-dashboard-check
 ```
 
 Dit is een offline structuur- en templatecontrole, geen volledige Home Assistant-schema-validatie. HA-configuratiecontrole, actuele sensorbeschikbaarheid, Recorder-statistieken en visuele desktop/iPhone-controle zijn nog niet uitgevoerd. Daarvoor is de nog niet toegestane activatie nodig. Er is geen screenshot of preview die een daadwerkelijk gerenderd HA-dashboard suggereert.
+
+
+## Revisie Overzicht
+
+- Vier YAML-bestanden geparseerd; 43 ingebouwde kaarten totaal en 32 gedocumenteerde referenties.
+- Overige views structureel vergeleken met `f9baab7`: exact ongewijzigd, inclusief titels en URL-paden.
+- Overzicht: maximaal twee kolommen, één energiestroomvisualisatie en één verbruiksgrafiek, geen extra historie- of datumkaarten.
+- Grote cijferkaarten met Jinja getest bij numerieke én onbeschikbare waarden. Bij ontbrekende tarieven verschijnt geen fictieve nulbesparing.
+- Dagbalans, dagscenario, ontbrekende bron en uitgeschakelde tariefbevestiging met synthetische waarden getest.
+- Vijf dagmeters op dagelijkse cyclus en beschikbaarheidsinstellingen gecontroleerd. Eerste onvolledige dag zichtbaar vermeld.
+- Bestaande bron-ID’s opnieuw read-only via SSH gecontroleerd in het entity-register; alle benodigde P1-, Growatt- en batterijbronnen staan ingeschakeld. Ook de eerder toegevoegde woningvermogen- en financiële templates zijn inmiddels geregistreerd.
+- Geen live sensorstatus of frontend-rendering gecontroleerd. Volledige HA-schema- en iPhone-/desktopvalidatie blijven onderdeel van de installatie na toestemming.
+- Geen serverbestanden gewijzigd, geen Home Assistant-herstart en geen push uitgevoerd.

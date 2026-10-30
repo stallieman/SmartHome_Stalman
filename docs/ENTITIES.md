@@ -31,3 +31,17 @@ Gericht gecontroleerd via SSH op 2026-10-30. Registervermelding bevestigt geen a
 | `sensor.stalman_total_energy_today` | kWh | Bestaand · ingeschakeld |
 | `sensor.stalman_total_output_power` | W | Bestaand · ingeschakeld |
 | `sensor.stalman_woningvermogen` | W | Nieuw lokaal package |
+
+## Nieuwe dagwaarden voor Overzicht
+
+Deze entiteiten worden pas bij installatie van het bijgewerkte package aangemaakt.
+
+| Entiteit | Eenheid | Berekening / bron |
+|---|---|---|
+| `sensor.stalman_import_vandaag` | kWh | Dagmeter: P1 import |
+| `sensor.stalman_export_vandaag` | kWh | Dagmeter: P1 export |
+| `sensor.stalman_zon_vandaag` | kWh | Dagmeter: Growatt levenslange productie |
+| `sensor.stalman_bespaard_vandaag` | kWh | Dagmeter: Simulator bespaarde netafname |
+| `sensor.stalman_geladen_vandaag` | kWh | Dagmeter: Simulator geladen energie |
+| `sensor.stalman_huis_vandaag` | kWh | Import + zon − export, begrensd op nul |
+| `sensor.stalman_batterijbesparing_vandaag` | EUR | Dagscenario, uitsluitend met bevestigde tarieven |
