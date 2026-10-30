@@ -1,0 +1,17 @@
+Stalman Nacht:
+  primary-color: '#65d6bc'
+  accent-color: '#f4bd61'
+  primary-background-color: '#0c1420'
+  secondary-background-color: '#142030'
+  card-background-color: '#172536'
+  primary-text-color: '#edf3fa'
+  secondary-text-color: '#b0c2d5'
+  divider-color: '#304357'
+  ha-card-border-radius: 18px
+  ha-card-border-width: 1px
+  ha-card-border-color: '#304357'
+  modes:
+    dark:
+      primary-background-color: '#0c1420'
+    light:
+      primary-background-color: '#0c1420'

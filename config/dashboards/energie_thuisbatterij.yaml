@@ -1,0 +1,324 @@
+title: Energie & Thuisbatterij · YAML
+views:
+- title: Energie
+  path: energie
+  icon: mdi:home-lightning-bolt
+  type: sections
+  max_columns: 3
+  theme: Stalman Nacht
+  sections:
+  - type: grid
+    cards:
+    - type: heading
+      heading: Nu in huis
+      icon: mdi:flash
+    - type: markdown
+      content: '## Energie & Thuisbatterij
+
+        Werkelijke metingen · HomeWizard P1 + Growatt
+
+
+        De batterij staat apart onder **Simulatie**.'
+    - type: tile
+      entity: sensor.stalman_woningvermogen
+      name: Woning · berekend
+      tap_action:
+        action: more-info
+      icon: mdi:home-lightning-bolt
+      color: amber
+    - type: tile
+      entity: sensor.p1_meter_vermogen
+      name: Net · + import / − export
+      tap_action:
+        action: more-info
+      icon: mdi:transmission-tower
+      color: blue
+    - type: tile
+      entity: sensor.stalman_total_output_power
+      name: Zonnepanelen · actueel
+      tap_action:
+        action: more-info
+      icon: mdi:solar-power
+      color: amber
+    - type: markdown
+      content: Woningvermogen = P1-netvermogen + Growatt-productie. Bronnen verversen op verschillende momenten;
+        dit is een indicatie, geen gesynchroniseerde meting.
+  - type: grid
+    cards:
+    - type: heading
+      heading: Energiestromen
+      icon: mdi:transmission-tower
+    - type: energy-date-selection
+      collection_key: energy_stalman
+    - type: energy-distribution
+      collection_key: energy_stalman
+      title: Net · woning · zon
+    - type: energy-usage-graph
+      collection_key: energy_stalman
+      title: Elektriciteitsverbruik
+    - type: markdown
+      content: De datumkeuze geldt voor de energiekaarten. Actuele tegels en 24-uursgrafieken houden hun eigen tijdvenster.
+  - type: grid
+    cards:
+    - type: heading
+      heading: Zon & gas
+      icon: mdi:solar-power
+    - type: tile
+      entity: sensor.stalman_total_energy_today
+      name: Zonneproductie vandaag
+      tap_action:
+        action: more-info
+      icon: mdi:white-balance-sunny
+      color: amber
+    - type: energy-solar-graph
+      collection_key: energy_stalman
+      title: Zonneproductie · gekozen periode
+    - type: energy-gas-graph
+      collection_key: energy_stalman
+      title: Gas · gekozen periode
+    - type: entities
+      title: Cumulatieve meterstanden
+      show_header_toggle: false
+      entities:
+      - entity: sensor.p1_meter_energie_import
+        name: Netimport
+      - entity: sensor.p1_meter_energie_export
+        name: Netexport
+      - entity: sensor.stalman_total_energieopbrengst_levenslang
+        name: Zonneproductie totaal
+      - entity: sensor.gas_meter_gas
+        name: Gas totaal
+  - type: grid
+    cards:
+    - type: heading
+      heading: Vermogen · afgelopen 24 uur
+      icon: mdi:chart-line
+    - type: history-graph
+      title: P1 en zonnepanelen
+      hours_to_show: 24
+      entities:
+      - entity: sensor.p1_meter_vermogen
+        name: Net (W)
+      - entity: sensor.stalman_total_output_power
+        name: Zon (W)
+    - type: markdown
+      content: Ontbrekende statistieken worden niet aangevuld. Energiekaarten gebruiken de bestaande centrale energieconfiguratie;
+        de simulatie wordt daar niet aan toegevoegd.
+- title: Simulatie
+  path: simulatie
+  icon: mdi:battery-clock
+  type: sections
+  max_columns: 3
+  theme: Stalman Nacht
+  sections:
+  - type: grid
+    cards:
+    - type: heading
+      heading: Virtuele Marstek
+      icon: mdi:flask-outline
+    - type: markdown
+      content: '## SIMULATIE
+
+        Marstek Venus E 3.0 · 5,12 kWh
+
+
+        Geen fysieke thuisbatterij. Deze waarden wijzigen de werkelijke P1-metingen niet.
+
+
+        Ontwerp: laden 2,5 kW · ontladen 0,8 kW · SoC 10–100% · circa 91% efficiëntie per richting. Controleer de
+        actieve simulatorinstellingen.'
+    - type: gauge
+      entity: sensor.marstek_venus_e_5_12kwh_3nd_gen_state_of_charge
+      name: Virtuele batterijlading
+      min: 0
+      max: 100
+      needle: true
+      severity:
+        red: 0
+        yellow: 10
+        green: 30
+    - type: tile
+      entity: sensor.marstek_venus_e_5_12kwh_3nd_gen
+      name: Opgeslagen energie
+      tap_action:
+        action: more-info
+      icon: mdi:battery
+      color: green
+    - type: tile
+      entity: sensor.marstek_venus_e_5_12kwh_3nd_gen_battery_mode_now
+      name: Simulatorstatus
+      tap_action:
+        action: more-info
+      icon: mdi:flask-outline
+  - type: grid
+    cards:
+    - type: heading
+      heading: Laden & ontladen
+      icon: mdi:battery-charging
+    - type: tile
+      entity: sensor.marstek_venus_e_5_12kwh_3nd_gen_current_charging_rate
+      name: Laadvermogen · simulatie
+      tap_action:
+        action: more-info
+      icon: mdi:battery-arrow-up
+      color: blue
+    - type: tile
+      entity: sensor.marstek_venus_e_5_12kwh_3nd_gen_current_discharging_rate
+      name: Ontlaadvermogen · simulatie
+      tap_action:
+        action: more-info
+      icon: mdi:battery-arrow-down
+      color: green
+    - type: history-graph
+      title: Vermogen · 24 uur
+      hours_to_show: 24
+      entities:
+      - entity: sensor.marstek_venus_e_5_12kwh_3nd_gen_current_charging_rate
+        name: Laden (kW)
+      - entity: sensor.marstek_venus_e_5_12kwh_3nd_gen_current_discharging_rate
+        name: Ontladen (kW)
+    - type: entities
+      title: Sinds start / laatste reset
+      show_header_toggle: false
+      entities:
+      - entity: sensor.marstek_venus_e_5_12kwh_3nd_gen_battery_energy_in
+        name: Geladen energie
+      - entity: sensor.marstek_venus_e_5_12kwh_3nd_gen_battery_energy_out
+        name: Ontladen energie
+      - entity: sensor.marstek_venus_e_5_12kwh_3nd_gen_total_energy_saved
+        name: Bespaarde netafname
+      - entity: sensor.marstek_venus_e_5_12kwh_3nd_gen_battery_cycles
+        name: Batterijcycli
+  - type: grid
+    cards:
+    - type: heading
+      heading: Batterijverloop
+      icon: mdi:chart-areaspline
+    - type: history-graph
+      title: Batterijlading · 24 uur
+      hours_to_show: 24
+      entities:
+      - entity: sensor.marstek_venus_e_5_12kwh_3nd_gen_state_of_charge
+        name: SoC (%)
+    - type: statistics-graph
+      title: SoC · afgelopen 7 dagen
+      chart_type: line
+      period: hour
+      days_to_show: 7
+      stat_types:
+      - mean
+      - min
+      - max
+      entities:
+      - sensor.marstek_venus_e_5_12kwh_3nd_gen_state_of_charge
+    - type: markdown
+      content: Historie verschijnt alleen als Recorder deze sensoren registreert. Simulator-totalen gelden sinds
+        start of reset; ze zijn geen levenslange fysieke meterstanden. Er staan geen reset- of bedieningsknoppen
+        op dit dashboard.
+- title: Analyse
+  path: analyse
+  icon: mdi:chart-box-outline
+  type: sections
+  max_columns: 3
+  theme: Stalman Nacht
+  sections:
+  - type: grid
+    cards:
+    - type: heading
+      heading: Zonder & met batterij
+      icon: mdi:compare-horizontal
+    - type: markdown
+      content: '## Gemeten versus gesimuleerd
+
+        Vergelijk veranderingen binnen hetzelfde tijdvenster. Absolute meterstanden kunnen een andere beginwaarde
+        hebben. De grafiek toont dagelijkse toenames; de huidige dag en de eerste simulatiedag zijn onvolledig.'
+    - type: statistics-graph
+      title: Netafname per dag · 14 dagen
+      chart_type: bar
+      period: day
+      days_to_show: 14
+      stat_types:
+      - change
+      entities:
+      - entity: sensor.p1_meter_energie_import
+        name: Zonder batterij · P1
+      - entity: sensor.marstek_venus_e_5_12kwh_3nd_gen_simulated_sensor_p1_meter_energie_import
+        name: Met batterij · simulatie
+    - type: tile
+      entity: sensor.marstek_venus_e_5_12kwh_3nd_gen_total_energy_saved
+      name: Bespaarde netafname · simulatie
+      tap_action:
+        action: more-info
+      icon: mdi:transmission-tower-off
+      color: green
+    - type: entities
+      title: Referentiemeterstanden
+      show_header_toggle: false
+      entities:
+      - entity: sensor.p1_meter_energie_import
+        name: Werkelijke import
+      - entity: sensor.marstek_venus_e_5_12kwh_3nd_gen_simulated_sensor_p1_meter_energie_import
+        name: Gesimuleerde import
+      - entity: sensor.p1_meter_energie_export
+        name: Werkelijke export
+      - entity: sensor.marstek_venus_e_5_12kwh_3nd_gen_simulated_sensor_p1_meter_energie_export
+        name: Gesimuleerde export
+  - type: grid
+    cards:
+    - type: heading
+      heading: Financieel scenario
+      icon: mdi:currency-eur
+    - type: markdown
+      content: '**Nog niet beschikbaar** totdat tarieven zijn ingevuld en bevestigd.
+
+
+        Scenario tegen één vast tarief, toegepast op simulator-totalen sinds start/reset. Geen gerealiseerde opbrengst
+        of historische kostenberekening. Bij netladen, dynamische tarieven of saldering is dit model niet geschikt.'
+    - type: tile
+      entity: sensor.stalman_besparingsscenario
+      name: Netto scenario · geen gerealiseerde besparing
+      tap_action:
+        action: more-info
+      icon: mdi:calculator
+      color: green
+    - type: markdown
+      content: '**Terugverdientijd: nog niet beschikbaar.**
+
+
+        Er ontbreekt een representatieve gevalideerde jaarbesparing, inclusief tariefregels, verliezen en gebruikskosten.
+        Daarom berekenen we geen fictieve looptijd.'
+    - type: entities
+      title: Simulatoruitvoer · tariefbasis onbevestigd
+      show_header_toggle: false
+      entities:
+      - entity: sensor.marstek_venus_e_5_12kwh_3nd_gen_money_saved_on_imports
+        name: Importbesparing · ongevalideerd
+      - entity: sensor.marstek_venus_e_5_12kwh_3nd_gen_extra_money_earned_on_exports
+        name: Extra exportopbrengst · ongevalideerd
+      - entity: sensor.marstek_venus_e_5_12kwh_3nd_gen_total_money_saved
+        name: Totaal · ongevalideerd
+  - type: grid
+    cards:
+    - type: heading
+      heading: Scenario instellen
+      icon: mdi:tune
+    - type: markdown
+      content: Vul eigen tarieven en kosten in. Zet de bevestiging alleen aan wanneer beide tarieven kloppen en
+        de simulatie uitsluitend zonneoverschot laadt. **0 is een geldige invoer, geen aangenomen tarief.** Deze
+        helpers veranderen de Battery Simulator niet.
+    - type: entities
+      title: Eigen aannames
+      show_header_toggle: false
+      entities:
+      - entity: input_number.stalman_importtarief
+        name: Import · EUR/kWh
+      - entity: input_number.stalman_exporttarief
+        name: Exportvergoeding · EUR/kWh
+      - entity: input_number.stalman_aanschafkosten
+        name: Aanschaf incl. installatie · EUR
+      - entity: input_boolean.stalman_tarieven_bevestigd
+        name: Tarieven en model bevestigd
+    - type: markdown
+      content: Scenario = bespaarde import × importtarief − geladen energie × exportvergoeding. Geladen energie
+        is AC-energie die anders kon worden teruggeleverd; verliezen worden al door de simulatie verwerkt. Kosten
+        zijn gereserveerd voor een latere rendementsanalyse.

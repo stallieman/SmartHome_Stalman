@@ -1,0 +1,50 @@
+input_number:
+  stalman_importtarief:
+    name: Stalman Importtarief
+    min: 0
+    max: 5
+    step: 0.001
+    mode: box
+    unit_of_measurement: EUR/kWh
+  stalman_exporttarief:
+    name: Stalman Exportvergoeding
+    min: 0
+    max: 5
+    step: 0.001
+    mode: box
+    unit_of_measurement: EUR/kWh
+  stalman_aanschafkosten:
+    name: Stalman Aanschafkosten
+    min: 0
+    max: 100000
+    step: 1
+    mode: box
+    unit_of_measurement: EUR
+input_boolean:
+  stalman_tarieven_bevestigd:
+    name: Stalman tarieven en model bevestigd
+    icon: mdi:check-decagram
+    initial: false
+template:
+- sensor:
+  - name: Stalman woningvermogen
+    unique_id: stalman_woningvermogen
+    default_entity_id: sensor.stalman_woningvermogen
+    unit_of_measurement: W
+    device_class: power
+    state_class: measurement
+    availability: '{{ is_number(states(''sensor.p1_meter_vermogen'')) and is_number(states(''sensor.stalman_total_output_power''))
+      }}'
+    state: '{{ ([0, states(''sensor.p1_meter_vermogen'') | float(0) + states(''sensor.stalman_total_output_power'')
+      | float(0)] | max) | round(0) }}'
+  - name: Stalman besparingsscenario
+    unique_id: stalman_besparingsscenario
+    default_entity_id: sensor.stalman_besparingsscenario
+    unit_of_measurement: EUR
+    device_class: monetary
+    availability: '{{ is_state(''input_boolean.stalman_tarieven_bevestigd'', ''on'') and is_number(states(''sensor.marstek_venus_e_5_12kwh_3nd_gen_total_energy_saved''))
+      and is_number(states(''sensor.marstek_venus_e_5_12kwh_3nd_gen_battery_energy_in'')) and is_number(states(''input_number.stalman_importtarief''))
+      and is_number(states(''input_number.stalman_exporttarief'')) }}'
+    state: '{{ (states(''sensor.marstek_venus_e_5_12kwh_3nd_gen_total_energy_saved'') | float(0) * states(''input_number.stalman_importtarief'')
+      | float(0) - states(''sensor.marstek_venus_e_5_12kwh_3nd_gen_battery_energy_in'') | float(0) * states(''input_number.stalman_exporttarief'')
+      | float(0)) | round(2) }}'

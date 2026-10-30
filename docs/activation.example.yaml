@@ -1,0 +1,12 @@
+homeassistant:
+  packages:
+    stalman_energie: !include packages/energie_thuisbatterij.yaml
+lovelace:
+  dashboards:
+    energie-thuisbatterij-yaml:
+      mode: yaml
+      title: Energie & Thuisbatterij · YAML
+      icon: mdi:home-battery
+      show_in_sidebar: true
+      require_admin: false
+      filename: dashboards/energie_thuisbatterij.yaml

@@ -58,3 +58,12 @@ docker compose logs --tail=100 --follow homeassistant
 Press `Ctrl-C` to stop following the logs; this does not stop the container. The Compose configuration uses `restart: unless-stopped`, so Docker will normally bring Home Assistant back after a reboot or unexpected failure.
 
 The repository intentionally excludes credentials, certificates, databases, logs, and other machine-specific runtime state.
+
+## Energie & Thuisbatterij · YAML-dashboard
+
+Nieuw afzonderlijk donker dashboard met tabbladen Energie, Simulatie en Analyse.
+Gebruikt uitsluitend ingebouwde kaarten; het bestaande dashboard blijft behouden.
+
+Zie [installatie en beheer](docs/ENERGIE_DASHBOARD.md),
+[gebruikte entiteiten](docs/ENTITIES.md) en [validatieresultaten](docs/VALIDATION.md).
+Activatie op de server vereist afzonderlijke expliciete toestemming.
