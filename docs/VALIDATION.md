@@ -55,6 +55,14 @@ Zes aanvullende tests slagen in de officiële Home Assistant 2026.10.4 ARM64-con
 
 De proef dekt P1-updates op twee- en tienseconden-cadans, vertraagde simulatorverwerking, exacte P1-register-/eventgrenzen, tariefmapping en tariefwissel, ontbrekende gegevens, dubbele events, P1-reset en HA-herstart. Ongeldige vensters blijven onbeschikbaar; herstel begint met een nieuwe auditgeneratie. Dit is geen volledige HA-appstart, config-entry-/platformsensorintegratietest, hardwaretest of hercontrole van de actieve HACS-installatie. De auditpolicy blijft uitgeschakeld; productie en geïnstalleerde HACS-bestanden zijn niet gewijzigd.
 
+## Lokale installatie-/transport-/rollbackproef · 2026-10-31
+
+De aanvullende `scripts/validate_battery_installation.py` start zes onafhankelijke Python-processen in een netwerkloze HA 2026.10.4-container: origineel, audit, origineel-herstartreferentie, audit-herstart, rollback en onafhankelijke back-uprestore. Echte HA-bootstrap, config-entry, upstream-platformsensoren en de drie bestaande packages laden met 5,12 kWh, 2,5 kW laden, 0,8 kW ontladen, efficiënties 0,91 en updatefrequentie 60 s. Geen productiecredentials of productie-`.storage` worden gebruikt.
+
+De echte YAML-/shellketen schrijft snapshots en auditbatches naar SQLite en atomaire JSON; command_line en window-templates lezen het resultaat. De onbevestigde contractconfiguratie geeft geen geldbedragen. Met een uitsluitend synthetisch bevestigd lokaal plan komt de sensoruitkomst overeen met de getransporteerde tellerdelta's. Eerste startup-batch, acht dubbele events, ontbrekende/late batch, CLI-fout, uitgeschakelde auditpolicy en geen nieuwe events zijn gecontroleerd. Herstart en rollback behouden de oorspronkelijke modelwerking; upstream herstelt SoC-energie uit een op drie decimalen afgeronde sensorstate, niet uit de exacte interne float. Originele en geïnstrumenteerde herstart zijn hierin identiek.
+
+De proef slaagt. Productie-installatie, productie-back-up, HTTP/frontend en hardware zijn niet getest. De bestaande suites zijn ongewijzigd en daarom niet opnieuw gedraaid. Zie [installatieplan](INSTALLATION_PLAN.md).
+
 ## Essent-contractscenario's · 2026-10-31
 
 34 financiële unittests slagen. De brutotarieven € 0,31274/€ 0,30911 tellen op uit de opgegeven levering en energiebelasting. Onder de te bevestigen inclusief-btw-basis wordt 21% btw alleen intern verwijderd en eenmaal na de 10%-korting op levering toegepast; de resultaten zijn exact € 0,292551 normaal en € 0,289284 dal. Tests bewijzen dat dubbel toepassen van btw of korting niet gebeurt.

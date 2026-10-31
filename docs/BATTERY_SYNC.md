@@ -141,7 +141,7 @@ docker run --rm --network none \
   --source /upstream/__init__.py
 ```
 
-De test weigert afwijkende hashes voor `__init__.py`, `const.py` of `helpers.py`. De bestaande hooktests blijven referentiecallbacktests. De runtimeproef start niet de volledige Home Assistant-applicatie of een config-entry/platformsensoropstelling en controleert geen fysieke meters, HACS-updates of hardwaregedrag. De synchronisatie is daarmee bewezen voor de vastgepinde instrumentatie en gesynthetiseerde teststromen, niet voor de huidige, ongewijzigde HACS-integratie of productie-installatie. De voorgestelde helperidentiteit is geen cryptografische handtekening; een beheerder die zowel configuratie als audit-events kan wijzigen valt buiten dit bewijs.
+De test weigert afwijkende hashes voor `__init__.py`, `const.py` of `helpers.py`. De bestaande hooktests blijven referentiecallbacktests. Deze pariteitsproef start niet de volledige Home Assistant-applicatie of een config-entry/platformsensoropstelling en controleert geen fysieke meters, HACS-updates of hardwaregedrag. De aanvullende [lokale installatieproef](INSTALLATION_PLAN.md) met `scripts/validate_battery_installation.py` test inmiddels wel echte HA-bootstrap, config-entry/platforms, de YAML-/shelltransportketen, herstart en rollback met de vastgestelde Marstek-parameters. Beide proeven vullen elkaar aan; productie blijft onaangeroerd. De synchronisatie is daarmee bewezen voor de vastgepinde instrumentatie en gesynthetiseerde teststromen, niet voor de huidige, ongewijzigde HACS-integratie of productie-installatie. De voorgestelde helperidentiteit is geen cryptografische handtekening; een beheerder die zowel configuratie als audit-events kan wijzigen valt buiten dit bewijs.
 
 Reproduceren:
 
