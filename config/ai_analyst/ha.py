@@ -334,7 +334,7 @@ def collect(config, client, report_date: dt.date) -> dict:
             reason = "metadata_missing"
         elif sensor["statistic_id"] in duplicate_ids:
             reason = "duplicate_metadata"
-        elif meta.get("unit_of_measurement") != sensor["unit"]:
+        elif meta.get("statistics_unit_of_measurement") != sensor["unit"]:
             reason = "metadata_wrong_unit"
         elif meta.get(capability) is not True:
             reason = "unsupported_statistics"
