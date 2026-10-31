@@ -77,7 +77,7 @@ def regular(path):
     return path.read_bytes()
 
 
-def safe_tree(root):
+def safe_tree(root, require_readable=False):
     require(root.is_dir() and not root.is_symlink(), "Configuration root must be a real directory.")
     size = 0
     def denied(error):
@@ -91,7 +91,8 @@ def safe_tree(root):
             if stat.S_ISDIR(info.st_mode):
                 require(os.access(path, os.R_OK | os.X_OK), "Unreadable configuration directory.")
             if stat.S_ISREG(info.st_mode):
-                require(os.access(path, os.R_OK), "Unreadable configuration file; backup impossible.")
+                if require_readable:
+                    require(os.access(path, os.R_OK), "Unreadable configuration file; backup impossible.")
                 size += info.st_size
     return size
 
@@ -367,9 +368,9 @@ except (urllib.error.URLError,TimeoutError):
         time.sleep(5)
 
 
-def preflight(args, files=None):
+def preflight(args, files=None, require_readable=False):
     require(regular(args.config / ".HA_VERSION").strip() == b"2026.10.4", "Unexpected HA configuration version.")
-    size = safe_tree(args.config)
+    size = safe_tree(args.config, require_readable=require_readable)
     args.battery_fingerprint = battery(args.config)
     required = max(1024 ** 3, 3 * size + 256 * 1024 ** 2)
     storage = getattr(args, "restore_point", None) or args.restore_root
@@ -445,7 +446,7 @@ def recover_transaction(args, was_running, snapshot, allowed, restore_changes):
 
 
 def install(args):
-    preflight(args)
+    preflight(args, require_readable=args.apply)
     for name, expected in SOURCE.items():
         require(digest(regular(args.config / PREFIX / name)) == expected, "Installed source hash mismatch.")
     backup_hash = backup_check(args.backup, args.config)
@@ -461,7 +462,7 @@ def install(args):
     if args.restore_root.exists():
         require(stat.S_IMODE(args.restore_root.stat().st_mode) == 0o700
                 and args.restore_root.stat().st_uid == os.geteuid(), "Restore root must be private and owned by caller.")
-    preflight(args, files)
+    preflight(args, files, require_readable=args.apply)
     before = {name: metadata(args.config / name) for name in files}
     if not args.apply:
         print(f"DRY-RUN: preflight passed; {len(files)} files planned. No writes, stop, validation container or restart.")

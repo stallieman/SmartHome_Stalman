@@ -7,6 +7,7 @@ import io
 import json
 import os
 from pathlib import Path
+import stat
 import tarfile
 import tempfile
 import unittest
@@ -111,6 +112,64 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual(self.tree(), self.originals)
         self.assertFalse(self.args.restore_root.exists())
         self.assertEqual(self.calls, [])
+
+    def test_dry_run_ignores_unreadable_unmanaged_storage_without_reading_it(self):
+        names = ("auth", "auth_provider.homeassistant", "core.uuid", "person", "onboarding",
+                 "core.restore_state")
+        protected = {self.config / ".storage" / name for name in names}
+        for path in protected:
+            self.write(str(path.relative_to(self.config)), b"synthetic protected data")
+        expected = self.tree()
+        modes = {path: stat.S_IMODE(path.stat().st_mode) for path in protected}
+        for path in protected:
+            path.chmod(0)
+        before = {path: (path.stat().st_mode, path.stat().st_size, path.stat().st_mtime_ns)
+                  for path in protected}
+        original_access = os.access
+        original_read_bytes = Path.read_bytes
+
+        def access(path, mode):
+            return False if Path(path) in protected else original_access(path, mode)
+
+        def read_bytes(path):
+            if path in protected:
+                raise AssertionError("Dry-run attempted to read protected storage.")
+            return original_read_bytes(path)
+
+        try:
+            with patch.object(d.os, "access", side_effect=access), \
+                    patch.object(Path, "read_bytes", new=read_bytes), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                d.install(self.args)
+            after = {path: (path.stat().st_mode, path.stat().st_size, path.stat().st_mtime_ns)
+                     for path in protected}
+            self.assertEqual(after, before)
+            self.assertFalse(self.args.restore_root.exists())
+            self.assertEqual(self.calls, [])
+        finally:
+            for path, mode in modes.items():
+                path.chmod(mode)
+        self.assertEqual(self.tree(), expected)
+
+    def test_apply_still_requires_readable_files_for_full_snapshot(self):
+        path = self.config / ".storage/auth"
+        self.write(".storage/auth", b"synthetic protected data")
+        mode = stat.S_IMODE(path.stat().st_mode)
+        path.chmod(0)
+        original_access = os.access
+
+        def access(candidate, flags):
+            return False if Path(candidate) == path else original_access(candidate, flags)
+
+        try:
+            self.args.apply = True
+            with patch.object(d.os, "access", side_effect=access):
+                with self.assertRaisesRegex(d.Stop, "Unreadable configuration file; backup impossible"):
+                    d.install(self.args)
+            self.assertFalse(self.args.restore_root.exists())
+            self.assertEqual(self.calls, [])
+        finally:
+            path.chmod(mode)
 
     def test_runtime_checks_require_explicit_authorization(self):
         with self.assertRaises(d.Stop):
