@@ -1,16 +1,17 @@
 """Fail-closed, host-local deployment. No SSH, privilege escalation or image pulls."""
+import sys
+sys.dont_write_bytecode = True
+
 import argparse
 from datetime import datetime, timezone
 import fcntl
 import hashlib
-import importlib.util
 import json
 import os
 from pathlib import Path, PurePosixPath
 import shutil
 import stat
 import subprocess
-import sys
 import tarfile
 import tempfile
 import time
@@ -99,14 +100,45 @@ def writable(path):
     parent = path.parent
     while not parent.exists():
         parent = parent.parent
-    require(not parent.is_symlink() and os.access(parent, os.W_OK | os.X_OK), "Destination parent not writable.")
-    if path.exists():
-        require(path.is_file() and not path.is_symlink() and os.access(path, os.R_OK | os.W_OK),
-                "Destination file not readable/writable.")
+    require(not parent.is_symlink(), "Destination parent must not be a symlink.")
+    info = parent.stat()
+    groups = {*os.getgroups(), os.getegid()}
+    can_write = (os.geteuid() == 0 or
+                 (info.st_uid == os.geteuid() and info.st_mode & stat.S_IWUSR) or
+                 (info.st_gid in groups and info.st_mode & stat.S_IWGRP) or
+                 info.st_mode & stat.S_IWOTH)
+    can_search = (os.geteuid() == 0 or
+                  (info.st_uid == os.geteuid() and info.st_mode & stat.S_IXUSR) or
+                  (info.st_gid in groups and info.st_mode & stat.S_IXGRP) or
+                  info.st_mode & stat.S_IXOTH)
+    require(can_write and can_search, "Destination parent permissions do not allow writes.")
+    if path.exists() or path.is_symlink():
+        require(path.is_file() and not path.is_symlink(), "Destination must be a regular, non-symlink file.")
         info = path.stat()
         if os.geteuid() != 0:
             require(info.st_uid == os.geteuid() and info.st_gid in {*os.getgroups(), os.getegid()},
                     "Cannot preserve destination ownership with current rights.")
+
+
+def verify_writable(path):
+    parent = path.parent
+    while not parent.exists():
+        parent = parent.parent
+    fd, probe = tempfile.mkstemp(prefix=".audit-write-check-", dir=parent)
+    try:
+        info = path.stat() if path.exists() else None
+        if info:
+            os.fchown(fd, info.st_uid, info.st_gid)
+            os.fchmod(fd, stat.S_IMODE(info.st_mode))
+        with os.fdopen(fd, "wb") as stream:
+            fd = -1
+            stream.write(b"probe")
+            stream.flush()
+            os.fsync(stream.fileno())
+    finally:
+        if fd >= 0:
+            os.close(fd)
+        os.unlink(probe)
 
 
 def container(args, running=True):
@@ -124,6 +156,17 @@ def container(args, running=True):
                                   '{"os":"{{.Os}}","arch":"{{.Architecture}}"}', IMAGE]))
     require(runtime == {"os": "linux", "arch": "arm64"}, "Unexpected image architecture.")
     return actual_running
+
+
+def runtime_check(args, require_running=None):
+    running = container(args, running=require_running)
+    if running:
+        dependencies = json.loads(command(["docker", "exec", args.container, "python3", "-B", "-c",
+            "import json,os,sqlite3,zoneinfo;from homeassistant.const import __version__;"
+            "print(json.dumps({'version':__version__,'uid':os.geteuid()}))"]))
+        require(dependencies["version"] == "2026.10.4" and dependencies["uid"] in (0, os.geteuid()),
+                "Unexpected runtime version or file-access identity.")
+    return running
 
 
 def battery(root):
@@ -170,9 +213,9 @@ def backup_check(path, root):
 
 
 def transform(source):
-    spec = importlib.util.spec_from_file_location("audit_prepare", ROOT / "proposals/battery_sim_audit/prepare_patch.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    path = ROOT / "proposals/battery_sim_audit/prepare_patch.py"
+    module = type(sys)("audit_prepare")
+    exec(compile(regular(path), str(path), "exec"), module.__dict__)
     return module.transform(source).encode()
 
 
@@ -244,7 +287,7 @@ def candidate(args):
 
 
 def metadata(path):
-    if not path.exists():
+    if not path.exists() and not path.is_symlink():
         return None
     data = regular(path)
     info = path.stat()
@@ -324,14 +367,7 @@ except (urllib.error.URLError,TimeoutError):
         time.sleep(5)
 
 
-def preflight(args, files=None, running=True):
-    container(args, running=running)
-    dependencies = json.loads(command(["docker", "exec", args.container, "python3", "-B", "-c",
-        "import json,os,sqlite3,zoneinfo;from homeassistant.const import __version__;"
-        "print(json.dumps({'version':__version__,'uid':os.geteuid()}))"])) if running else None
-    if dependencies:
-        require(dependencies["version"] == "2026.10.4" and dependencies["uid"] in (0, os.geteuid()),
-                "Unexpected runtime version or file-access identity.")
+def preflight(args, files=None):
     require(regular(args.config / ".HA_VERSION").strip() == b"2026.10.4", "Unexpected HA configuration version.")
     size = safe_tree(args.config)
     args.battery_fingerprint = battery(args.config)
@@ -344,6 +380,68 @@ def preflight(args, files=None, running=True):
     if files:
         for relative in files:
             writable(args.config / relative)
+
+
+def capture_files(root, names):
+    snapshot = {}
+    for name in names:
+        path = root / name
+        info = metadata(path)
+        snapshot[name] = None if info is None else {"info": info, "data": regular(path)}
+    return snapshot
+
+
+def restore_files(root, snapshot, allowed_hashes):
+    for name, state in snapshot.items():
+        current = metadata(root / name)
+        current_hash = current["sha256"] if current else None
+        require(current_hash in allowed_hashes[name], "Managed file drift prevents automatic recovery.")
+    for name, state in snapshot.items():
+        path = root / name
+        if state is None:
+            if path.exists() or path.is_symlink():
+                require(path.is_file() and not path.is_symlink(), "Refusing to remove a non-regular recovery target.")
+                path.unlink()
+        else:
+            atomic(path, state["data"], state["info"])
+
+
+def allow_hashes(*snapshots):
+    result = {}
+    for snapshot in snapshots:
+        for name, state in snapshot.items():
+            result.setdefault(name, set()).add(state["info"]["sha256"] if state else None)
+    return result
+
+
+def ensure_running(args, desired):
+    current = container(args, running=None)
+    if current != desired:
+        command(["docker", "start" if desired else "stop", args.container])
+    container(args, running=desired)
+
+
+def recover_transaction(args, was_running, snapshot, allowed, restore_changes):
+    if not restore_changes:
+        if was_running:
+            ensure_running(args, True)
+        return
+    try:
+        current = container(args, running=None)
+        if current:
+            command(["docker", "stop", "--time", "-1", args.container], timeout=180)
+            container(args, running=False)
+        if restore_changes:
+            restore_files(args.config, snapshot, allowed)
+    except BaseException as recovery_error:
+        try:
+            if was_running:
+                ensure_running(args, True)
+        except BaseException:
+            pass
+        raise Stop("Automatic recovery was incomplete; inspect the container and managed files before proceeding.") from recovery_error
+    if was_running:
+        ensure_running(args, True)
 
 
 def install(args):
@@ -368,6 +466,11 @@ def install(args):
     if not args.apply:
         print(f"DRY-RUN: preflight passed; {len(files)} files planned. No writes, stop, validation container or restart.")
         return
+    require(args.authorize_runtime_check, "--apply requires --authorize-runtime-check for the separate runtime preflight.")
+    for relative in files:
+        verify_writable(args.config / relative)
+    verify_writable(args.restore_root / ".probe")
+    runtime_check(args, require_running=True)
     args.restore_root.mkdir(parents=True, exist_ok=True, mode=0o700)
     require(stat.S_IMODE(args.restore_root.stat().st_mode) == 0o700
             and args.restore_root.stat().st_uid == os.geteuid(), "Restore root must be private and owned by caller.")
@@ -377,42 +480,63 @@ def install(args):
         require(all(metadata(args.config / n) == v for n, v in before.items()), "Configuration changed during preflight.")
         point = Path(tempfile.mkdtemp(prefix=datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-"), dir=args.restore_root))
         print("Private restore point:", point)
+        original_files = capture_files(args.config, files)
+        after_hashes = {name: {digest(data)} for name, data in files.items()}
+        recovery_hashes = allow_hashes(original_files)
+        for name, hashes in after_hashes.items():
+            recovery_hashes[name].update(hashes)
         stage = point / "stage"
         shutil.copytree(args.config, stage)
         for name, data in files.items():
             atomic(stage / name, data)
         check_config(stage)
-        command(["docker", "stop", "--time", "-1", args.container], timeout=180)
-        container(args, running=False)
-        require(all(file_digest(args.config / PREFIX / n) == value for n, value in SOURCE.items()),
-                "Source changed during staging.")
-        require(battery(args.config) == args.battery_fingerprint, "Battery configuration changed at shutdown.")
-        require(all(metadata(args.config / n) == v for n, v in before.items()), "Deployment files changed at shutdown.")
-        # The container is stopped: SQLite/WAL and .storage are copied consistently.
-        snapshot = point / "configuration.tar.gz"
-        with snapshot.open("xb") as stream:
-            os.fchmod(stream.fileno(), 0o600)
-            with tarfile.open(fileobj=stream, mode="w:gz") as archive:
-                archive.add(args.config, arcname="config")
-        originals = point / "originals"
-        for name, info in before.items():
-            if info:
-                atomic(originals / name, regular(args.config / name))
-        manifest = {"config": str(args.config), "image": IMAGE, "container": args.container,
-                    "battery": args.battery_fingerprint, "backup_sha256": backup_hash,
-                    "snapshot_sha256": file_digest(snapshot), "before": before,
-                    "after": {n: digest(data) for n, data in files.items()}, "phase": "prepared"}
-        atomic(point / "manifest.json", json.dumps(manifest, indent=2).encode())
-        for name, data in files.items():
-            atomic(args.config / name, data, before[name])
-        manifest["phase"] = "installed"
-        atomic(point / "manifest.json", json.dumps(manifest, indent=2).encode())
-        command(["docker", "start", args.container])
-        wait_core(args)
-        health(args)
-        manifest["phase"] = "validated"
-        atomic(point / "manifest.json", json.dumps(manifest, indent=2).encode())
-        print("PASS: audit-only installed and observed; monetary activation remains disabled.")
+        changed = False
+        was_running = True
+        manifest = None
+        try:
+            command(["docker", "stop", "--time", "-1", args.container], timeout=180)
+            container(args, running=False)
+            require(all(file_digest(args.config / PREFIX / n) == value for n, value in SOURCE.items()),
+                    "Source changed during staging.")
+            require(battery(args.config) == args.battery_fingerprint, "Battery configuration changed at shutdown.")
+            require(all(metadata(args.config / n) == v for n, v in before.items()),
+                    "Deployment files changed at shutdown.")
+            snapshot = point / "configuration.tar.gz"
+            with snapshot.open("xb") as stream:
+                os.fchmod(stream.fileno(), 0o600)
+                with tarfile.open(fileobj=stream, mode="w:gz") as archive:
+                    archive.add(args.config, arcname="config")
+            for name, state in original_files.items():
+                if state:
+                    atomic(point / "originals" / name, state["data"])
+            manifest = {"config": str(args.config), "image": IMAGE, "container": args.container,
+                        "battery": args.battery_fingerprint, "backup_sha256": backup_hash,
+                        "snapshot_sha256": file_digest(snapshot), "before": before,
+                        "after": {n: digest(data) for n, data in files.items()}, "phase": "prepared"}
+            atomic(point / "manifest.json", json.dumps(manifest, indent=2).encode())
+            changed = True
+            for name, data in files.items():
+                atomic(args.config / name, data, before[name])
+            manifest["phase"] = "installed"
+            atomic(point / "manifest.json", json.dumps(manifest, indent=2).encode())
+            command(["docker", "start", args.container])
+            wait_core(args)
+            health(args)
+            manifest["phase"] = "validated"
+            atomic(point / "manifest.json", json.dumps(manifest, indent=2).encode())
+            print("PASS: audit-only installed and observed; monetary activation remains disabled.")
+        except BaseException as original_error:
+            try:
+                recover_transaction(args, was_running, original_files, recovery_hashes, changed)
+            except BaseException as recovery_error:
+                raise Stop("Installation failed and automatic recovery was incomplete; inspect the saved restore point and container.") from recovery_error
+            if manifest is not None:
+                manifest["phase"] = "recovered"
+                try:
+                    atomic(point / "manifest.json", json.dumps(manifest, indent=2).encode())
+                except BaseException as manifest_error:
+                    raise Stop("Files and container were recovered, but restore-point metadata needs review.") from manifest_error
+            raise original_error
 
 
 def rollback(args):
@@ -425,8 +549,7 @@ def rollback(args):
     require(manifest["config"] == str(args.config) and manifest["image"] == IMAGE
             and manifest["container"] == args.container and manifest["phase"] in ("prepared", "installed", "validated"),
             "Restore point is not applicable.")
-    running = container(args, running=None)
-    preflight(args, running=running)
+    preflight(args)
     require(args.battery_fingerprint == manifest["battery"], "Battery configuration changed; manual review required.")
     require(file_digest(point / "configuration.tar.gz") == manifest["snapshot_sha256"], "Restore snapshot is damaged.")
     allowed = {"configuration.yaml", "packages/energie_thuisbatterij.yaml",
@@ -434,13 +557,12 @@ def rollback(args):
                PREFIX + "__init__.py", PREFIX + "stalman_audit.py",
                *["energy_finance/" + n for n in CORE_FILES]}
     require(set(manifest["before"]) == set(manifest["after"]) == allowed, "Unexpected managed restore files.")
-    files, observed = {}, {}
+    files = {}
     for name, info in manifest["before"].items():
         require(not PurePosixPath(name).is_absolute() and ".." not in PurePosixPath(name).parts,
                 "Unsafe restore path.")
         writable(args.config / name)
         current = metadata(args.config / name)
-        observed[name] = current
         require((current is None and info is None) or (current is not None and current["sha256"] in
                 (manifest["after"][name], (info or {}).get("sha256"))),
                 "Installed file drift; rollback would overwrite another change.")
@@ -451,44 +573,70 @@ def rollback(args):
     if not args.apply:
         print("DRY-RUN: rollback preflight passed. No files changed or container restarted.")
         return
+    require(args.authorize_runtime_check, "--apply requires --authorize-runtime-check for the separate runtime preflight.")
+    for name in manifest["before"]:
+        verify_writable(args.config / name)
+    verify_writable(point.parent / ".deployment.lock")
+    verify_writable(point / ".rollback-probe")
+    running = runtime_check(args, require_running=None)
+    observed_files = capture_files(args.config, manifest["before"])
+    rollback_files = {
+        name: None if info is None else {"info": info, "data": files[name]}
+        for name, info in manifest["before"].items()
+    }
+    recovery_hashes = allow_hashes(observed_files, rollback_files)
+    original_phase = manifest["phase"]
     with (point.parent / ".deployment.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        with tempfile.TemporaryDirectory(prefix="rollback-check-", dir=point) as temporary:
-            stage = Path(temporary) / "config"
-            shutil.copytree(args.config, stage)
-            for name, info in manifest["before"].items():
-                if info:
-                    atomic(stage / name, files[name])
-                elif (stage / name).exists():
-                    (stage / name).unlink()
-            check_config(stage)
-        container(args, running=running)
-        require(all(metadata(args.config / n) == v for n, v in observed.items()), "Files changed during rollback validation.")
-        if running:
-            command(["docker", "stop", "--time", "-1", args.container], timeout=180)
-        container(args, running=False)
-        require(battery(args.config) == manifest["battery"]
-                and all(metadata(args.config / n) == v for n, v in observed.items()),
-                "Configuration changed at rollback shutdown.")
-        for name, info in manifest["before"].items():
-            target = args.config / name
-            if info:
-                atomic(target, files[name], info)
-            elif target.exists():
-                target.unlink()
-        command(["docker", "start", args.container])
-        wait_core(args)
-        container(args)
-        require(battery(args.config) == manifest["battery"], "Battery binding/settings differ after rollback.")
-        manifest["phase"] = "rolled_back"
-        atomic(point / "manifest.json", json.dumps(manifest, indent=2).encode())
-        print("PASS: original managed files restored; runtime databases and .storage were not overwritten.")
+        changed = False
+        try:
+            with tempfile.TemporaryDirectory(prefix="rollback-check-", dir=point) as temporary:
+                stage = Path(temporary) / "config"
+                shutil.copytree(args.config, stage)
+                for name, info in manifest["before"].items():
+                    if info:
+                        atomic(stage / name, files[name])
+                    elif (stage / name).exists():
+                        (stage / name).unlink()
+                check_config(stage)
+            require(all(metadata(args.config / n) == observed_files[n]["info"] if observed_files[n]
+                        else metadata(args.config / n) is None for n in observed_files),
+                    "Files changed during rollback validation.")
+            if running:
+                command(["docker", "stop", "--time", "-1", args.container], timeout=180)
+                container(args, running=False)
+            require(battery(args.config) == manifest["battery"], "Battery configuration changed at rollback shutdown.")
+            changed = True
+            restore_files(args.config, rollback_files, recovery_hashes)
+            if running:
+                command(["docker", "start", args.container])
+                wait_core(args)
+                container(args)
+                require(battery(args.config) == manifest["battery"],
+                        "Battery binding/settings differ after rollback.")
+            manifest["phase"] = "rolled_back"
+            atomic(point / "manifest.json", json.dumps(manifest, indent=2).encode())
+            print("PASS: original managed files restored; runtime databases and .storage were not overwritten.")
+        except BaseException as original_error:
+            try:
+                recover_transaction(args, running, observed_files, recovery_hashes, changed)
+            except BaseException as recovery_error:
+                raise Stop("Rollback failed and automatic recovery was incomplete; inspect the saved restore point and container.") from recovery_error
+            if manifest["phase"] != original_phase:
+                manifest["phase"] = original_phase
+                try:
+                    atomic(point / "manifest.json", json.dumps(manifest, indent=2).encode())
+                except BaseException as manifest_error:
+                    raise Stop("Rollback state was recovered, but restore-point metadata needs review.") from manifest_error
+            raise original_error
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("install", "rollback"))
+    parser.add_argument("action", choices=("install", "rollback", "runtime-check"))
     parser.add_argument("--apply", action="store_true", help="Explicitly allow writes and the controlled container stop/start")
+    parser.add_argument("--authorize-runtime-check", action="store_true",
+                        help="Explicitly authorize read-only Docker inspection and runtime checks")
     parser.add_argument("--config", type=Path, default=Path("/home/stallieman/SmartHome_Stalman/config"))
     parser.add_argument("--container", default="homeassistant")
     parser.add_argument("--backup", type=Path, default=Path("/home/stallieman/homeassistant-backup-20261031.tar.gz"))
@@ -498,7 +646,11 @@ def main(argv=None):
     args = parser.parse_args(argv)
     require(args.config.is_absolute() and args.config.resolve() == args.config, "Use the real absolute configuration path.")
     require(30 <= args.health_timeout <= 600, "Health timeout must be 30..600 seconds.")
-    if args.action == "rollback":
+    if args.action == "runtime-check":
+        require(args.authorize_runtime_check, "Runtime checks require --authorize-runtime-check.")
+        running = runtime_check(args, require_running=None)
+        print(f"PASS: runtime identity verified; container running={running}.")
+    elif args.action == "rollback":
         require(args.restore_point is not None, "Rollback requires --restore-point; no automatic selection.")
         rollback(args)
     else:

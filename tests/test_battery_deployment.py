@@ -47,7 +47,7 @@ class DeploymentTests(unittest.TestCase):
             archive.add(self.config, arcname="config")
         self.args = argparse.Namespace(config=self.config, container="homeassistant", backup=self.backup,
                                        restore_root=self.base / "restore", restore_point=None,
-                                       apply=False, health_timeout=30)
+                                       apply=False, authorize_runtime_check=False, health_timeout=30)
         self.running = True
         self.calls = []
         for mock in (patch.object(d, "SOURCE", hashes),
@@ -97,6 +97,7 @@ class DeploymentTests(unittest.TestCase):
 
     def install(self):
         self.args.apply = True
+        self.args.authorize_runtime_check = True
         with contextlib.redirect_stdout(io.StringIO()):
             d.install(self.args)
         points = [p for p in self.args.restore_root.iterdir() if p.is_dir()]
@@ -109,7 +110,24 @@ class DeploymentTests(unittest.TestCase):
             d.install(self.args)
         self.assertEqual(self.tree(), self.originals)
         self.assertFalse(self.args.restore_root.exists())
-        self.assertFalse(any(a[1] in ("run", "stop", "start") for a in self.calls))
+        self.assertEqual(self.calls, [])
+
+    def test_runtime_checks_require_explicit_authorization(self):
+        with self.assertRaises(d.Stop):
+            d.main(["runtime-check", "--config", str(self.config)])
+        self.assertEqual(self.calls, [])
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(d.main(["runtime-check", "--authorize-runtime-check",
+                                     "--config", str(self.config)]), 0)
+        self.assertTrue(any(a[1] == "exec" for a in self.calls))
+
+    def test_apply_requires_runtime_authorization_before_side_effects(self):
+        self.args.apply = True
+        with self.assertRaises(d.Stop):
+            d.install(self.args)
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.tree(), self.originals)
+        self.assertFalse(self.args.restore_root.exists())
 
     def test_cli_defaults_to_dry_run_and_rollback_requires_explicit_point(self):
         with contextlib.redirect_stdout(io.StringIO()):
@@ -148,11 +166,27 @@ class DeploymentTests(unittest.TestCase):
                 raise d.Stop("Synthetic config failure")
             return original(args, timeout)
         self.args.apply = True
+        self.args.authorize_runtime_check = True
         with patch.object(d, "command", side_effect=fail), contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaises(d.Stop):
                 d.install(self.args)
         self.assertEqual(self.tree(), self.originals)
         self.assertTrue(self.running)
+
+    def test_install_stop_failure_does_not_restart_or_change_files(self):
+        self.args.apply = True
+        self.args.authorize_runtime_check = True
+        original = self.docker
+        def fail_stop(args, timeout=120):
+            if args[1] == "stop":
+                raise d.Stop("Synthetic stop failure")
+            return original(args, timeout)
+        with patch.object(d, "command", side_effect=fail_stop), contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(d.Stop):
+                d.install(self.args)
+        self.assertTrue(self.running)
+        self.assertEqual(self.tree(), self.originals)
+        self.assertEqual(sum(call[1] == "start" for call in self.calls), 0)
 
     def test_drift_blocks_rollback_before_stop(self):
         self.install()
@@ -170,14 +204,14 @@ class DeploymentTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             d.rollback(self.args)
         self.assertEqual(self.tree(), before)
-        self.assertFalse(any(a[1] in ("run", "stop", "start") for a in self.calls))
+        self.assertEqual(self.calls, [])
 
     def test_stopped_partial_install_can_be_rolled_back(self):
         self.install()
         self.running = False
         with contextlib.redirect_stdout(io.StringIO()):
             d.rollback(self.args)
-        self.assertTrue(self.running)
+        self.assertFalse(self.running)
         self.assertEqual((self.config / "configuration.yaml").read_bytes(), self.original_config)
 
     def test_unsafe_path_or_hash_or_missing_backup_stops_before_writes(self):
@@ -202,35 +236,75 @@ class DeploymentTests(unittest.TestCase):
                     path.unlink()
         self.assertFalse(self.args.restore_root.exists())
 
-    def test_health_failure_requires_explicit_rollback(self):
+    def test_health_failure_restores_files_and_restarts_container(self):
         self.args.apply = True
+        self.args.authorize_runtime_check = True
         with patch.object(d, "health", side_effect=d.Stop("Synthetic unhealthy audit")), contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaises(d.Stop):
                 d.install(self.args)
         self.assertTrue(self.running)
-        self.assertTrue((self.config / (d.PREFIX + "stalman_audit.py")).exists())
-        self.assertEqual(sum(a[1] == "start" for a in self.calls), 1)
-        self.args.restore_point = next(p for p in self.args.restore_root.iterdir() if p.is_dir())
-        with contextlib.redirect_stdout(io.StringIO()):
-            d.rollback(self.args)
+        self.assertEqual(self.tree(), self.originals)
+        self.assertEqual(sum(a[1] == "start" for a in self.calls), 2)
         self.assertFalse((self.config / (d.PREFIX + "stalman_audit.py")).exists())
+        point = next(p for p in self.args.restore_root.iterdir() if p.is_dir())
+        self.assertEqual(json.loads((point / "manifest.json").read_bytes())["phase"], "recovered")
 
-    def test_partial_file_write_failure_can_be_explicitly_rolled_back(self):
+    def test_install_write_failure_restores_files_and_restarts_container(self):
         self.args.apply = True
+        self.args.authorize_runtime_check = True
         original = d.atomic
+        failed = False
         def failure(path, data, info=None):
-            if path == self.config / "energy_finance/compare.py":
+            nonlocal failed
+            if path == self.config / "energy_finance/compare.py" and not failed:
+                failed = True
                 raise OSError("synthetic disk failure")
             return original(path, data, info)
         with patch.object(d, "atomic", side_effect=failure), contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaises(OSError):
                 d.install(self.args)
-        self.assertFalse(self.running)
-        self.args.restore_point = next(p for p in self.args.restore_root.iterdir() if p.is_dir())
-        with contextlib.redirect_stdout(io.StringIO()):
-            d.rollback(self.args)
-        for name, (data, mode) in self.originals.items():
-            self.assertEqual((self.config / name).read_bytes(), data)
+        self.assertTrue(self.running)
+        self.assertEqual(self.tree(), self.originals)
+
+    def test_rollback_write_failure_restores_installed_files_and_restarts(self):
+        self.install()
+        installed = self.tree()
+        original = d.atomic
+        failed = False
+        def failure(path, data, info=None):
+            nonlocal failed
+            if path == self.config / "configuration.yaml" and not failed:
+                failed = True
+                raise OSError("synthetic rollback disk failure")
+            return original(path, data, info)
+        with patch.object(d, "atomic", side_effect=failure), contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(OSError):
+                d.rollback(self.args)
+        self.assertTrue(self.running)
+        self.assertEqual(self.tree(), installed)
+        self.assertEqual(json.loads((self.args.restore_point / "manifest.json").read_bytes())["phase"], "validated")
+
+    def test_rollback_config_failure_keeps_container_and_files(self):
+        self.install()
+        installed = self.tree()
+        original = self.docker
+        def fail_check(args, timeout=120):
+            if args[1] == "run":
+                raise d.Stop("Synthetic rollback config failure")
+            return original(args, timeout)
+        self.calls.clear()
+        with patch.object(d, "command", side_effect=fail_check), contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(d.Stop):
+                d.rollback(self.args)
+        self.assertTrue(self.running)
+        self.assertEqual(self.tree(), installed)
+        self.assertFalse(any(call[1] == "stop" for call in self.calls))
+
+    def test_apply_writeability_probe_uses_real_filesystem_operation(self):
+        with patch.object(d.tempfile, "mkstemp", side_effect=PermissionError("synthetic denied")):
+            with self.assertRaises(PermissionError):
+                d.verify_writable(self.config / "configuration.yaml")
+        self.assertEqual(self.tree(), self.originals)
 
     def test_changed_battery_or_existing_finance_path_is_rejected(self):
         changed = copy.deepcopy(self.entry)
@@ -275,7 +349,7 @@ class DeploymentTests(unittest.TestCase):
         for response in (b'true\n"wrong-image"\n[]', ("true\n" + json.dumps(d.IMAGE) + "\n[]").encode()):
             with self.subTest(response=response), patch.object(d, "command", return_value=response):
                 with self.assertRaises(d.Stop):
-                    d.install(self.args)
+                    d.runtime_check(self.args, require_running=True)
         self.assertEqual(self.tree(), self.originals)
 
     def test_insufficient_space_or_permissions_stops_before_mutation(self):
