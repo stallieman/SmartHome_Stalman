@@ -32,3 +32,8 @@ __pycache__/
 # Persistent interval collector journal (never commit readings)
 config/energy_finance/intervals.sqlite*
 config/energy_finance/.observations.json*
+
+# Daily analyst configuration, credentials and persistent reports
+config/ai_analyst/config.json
+config/ai_analyst/state/
+config/ai_analyst/*.env

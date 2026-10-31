@@ -1,0 +1,197 @@
+title: Ring Camera's
+views:
+  - title: Overzicht
+    path: overzicht
+    icon: mdi:cctv
+    type: sections
+    max_columns: 2
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Voordeur
+            icon: mdi:doorbell-video
+          - type: picture-entity
+            entity: camera.voordeur_live_weergave
+            name: Tik voor livebeeld
+            camera_view: auto
+            aspect_ratio: '16:9'
+            fit_mode: contain
+            show_state: false
+            tap_action:
+              action: more-info
+            hold_action:
+              action: none
+            visibility:
+              - condition: state
+                entity: camera.voordeur_live_weergave
+                state_not: [unknown, unavailable]
+              - condition: template
+                value_template: "{{ state_attr('camera.voordeur_live_weergave', 'video_url') not in [none, ''] }}"
+          - type: tile
+            entity: camera.voordeur_live_weergave
+            name: Livebeeld openen
+            icon: mdi:play-circle-outline
+            hide_state: true
+            tap_action:
+              action: more-info
+            icon_tap_action:
+              action: more-info
+            hold_action:
+              action: none
+            visibility:
+              - condition: state
+                entity: camera.voordeur_live_weergave
+                state_not: [unknown, unavailable]
+              - condition: template
+                value_template: "{{ state_attr('camera.voordeur_live_weergave', 'video_url') in [none, ''] }}"
+          - type: markdown
+            entity_id:
+              - camera.voordeur_live_weergave
+              - event.voordeur_ding
+              - event.voordeur_beweging
+              - switch.voordeur_bewegingsdetectie
+            content: >-
+              {% if states('camera.voordeur_live_weergave') in ['unknown', 'unavailable'] %}
+              **Camera niet beschikbaar** — controleer de Ring-verbinding.
+
+              {% elif state_attr('camera.voordeur_live_weergave', 'video_url') in [none, ''] %}
+              *Geen opnamevoorbeeld beschikbaar; livebeeld kun je hierboven openen.*
+
+              {% else %}
+              *Voorbeeld uit laatste opname; geen livebeeld.*
+
+              {% endif %}
+              {% set ding = as_timestamp(states('event.voordeur_ding'), none) %}
+              {% if ding is not none %}
+              {% if 0 <= as_timestamp(now()) - ding < 60 %}**Er is aangebeld.**{% else %}Laatste aanbellen{% endif %}
+              · {{ as_local(as_datetime(states('event.voordeur_ding'))).strftime('%d-%m %H:%M') }}
+              {% else %}
+              Nog geen deurbelgebeurtenis ontvangen.
+              {% endif %}
+
+              {% set motion = as_timestamp(states('event.voordeur_beweging'), none) %}
+              {% if motion is not none %}
+              {% if 0 <= as_timestamp(now()) - motion < 60 %}**Beweging gemeld.**{% else %}Laatste beweging{% endif %}
+              · {{ as_local(as_datetime(states('event.voordeur_beweging'))).strftime('%d-%m %H:%M') }}
+              {% else %}
+              Nog geen bewegingsgebeurtenis ontvangen.
+              {% endif %}
+
+              {% if is_state('switch.voordeur_bewegingsdetectie', 'off') %}
+              **Bewegingsdetectie staat uit.**
+              {% endif %}
+          - type: tile
+            entity: sensor.voordeur_batterij
+            name: Batterij bijna leeg
+            icon: mdi:battery-alert-variant-outline
+            color: amber
+            tap_action:
+              action: more-info
+            visibility:
+              - condition: numeric_state
+                entity: sensor.voordeur_batterij
+                below: 20
+      - type: grid
+        cards:
+          - type: heading
+            heading: Tuin
+            icon: mdi:cctv
+          - type: picture-entity
+            entity: camera.tuin_live_weergave
+            name: Tik voor livebeeld
+            camera_view: auto
+            aspect_ratio: '16:9'
+            fit_mode: contain
+            show_state: false
+            tap_action:
+              action: more-info
+            hold_action:
+              action: none
+            visibility:
+              - condition: state
+                entity: camera.tuin_live_weergave
+                state_not: [unknown, unavailable]
+              - condition: template
+                value_template: "{{ state_attr('camera.tuin_live_weergave', 'video_url') not in [none, ''] }}"
+          - type: tile
+            entity: camera.tuin_live_weergave
+            name: Livebeeld openen
+            icon: mdi:play-circle-outline
+            hide_state: true
+            tap_action:
+              action: more-info
+            icon_tap_action:
+              action: more-info
+            hold_action:
+              action: none
+            visibility:
+              - condition: state
+                entity: camera.tuin_live_weergave
+                state_not: [unknown, unavailable]
+              - condition: template
+                value_template: "{{ state_attr('camera.tuin_live_weergave', 'video_url') in [none, ''] }}"
+          - type: markdown
+            entity_id:
+              - camera.tuin_live_weergave
+              - event.tuin_beweging
+              - switch.tuin_bewegingsdetectie
+            content: >-
+              {% if states('camera.tuin_live_weergave') in ['unknown', 'unavailable'] %}
+              **Camera niet beschikbaar** — controleer de Ring-verbinding.
+
+              {% elif state_attr('camera.tuin_live_weergave', 'video_url') in [none, ''] %}
+              *Geen opnamevoorbeeld beschikbaar; livebeeld kun je hierboven openen.*
+
+              {% else %}
+              *Voorbeeld uit laatste opname; geen livebeeld.*
+
+              {% endif %}
+              {% set motion = as_timestamp(states('event.tuin_beweging'), none) %}
+              {% if motion is not none %}
+              {% if 0 <= as_timestamp(now()) - motion < 60 %}**Beweging gemeld.**{% else %}Laatste beweging{% endif %}
+              · {{ as_local(as_datetime(states('event.tuin_beweging'))).strftime('%d-%m %H:%M') }}
+              {% else %}
+              Nog geen bewegingsgebeurtenis ontvangen.
+              {% endif %}
+
+              {% if is_state('switch.tuin_bewegingsdetectie', 'off') %}
+              **Bewegingsdetectie staat uit.**
+              {% endif %}
+          - type: tile
+            entity: sensor.tuin_batterij
+            name: Batterij bijna leeg
+            icon: mdi:battery-alert-variant-outline
+            color: amber
+            tap_action:
+              action: more-info
+            visibility:
+              - condition: numeric_state
+                entity: sensor.tuin_batterij
+                below: 20
+      - type: grid
+        column_span: 2
+        visibility:
+          - condition: or
+            conditions:
+              - condition: state
+                entity: event.voordeur_ding
+                state_not: [unknown, unavailable]
+              - condition: state
+                entity: event.voordeur_beweging
+                state_not: [unknown, unavailable]
+              - condition: state
+                entity: event.tuin_beweging
+                state_not: [unknown, unavailable]
+        cards:
+          - type: logbook
+            title: Recente activiteit
+            target:
+              entity_id:
+                - event.voordeur_ding
+                - event.voordeur_beweging
+                - event.tuin_beweging
+            hours_to_show: 24
+            grid_options:
+              columns: full
+              rows: auto

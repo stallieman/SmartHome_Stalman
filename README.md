@@ -59,6 +59,12 @@ Press `Ctrl-C` to stop following the logs; this does not stop the container. The
 
 The repository intentionally excludes credentials, certificates, databases, logs, and other machine-specific runtime state.
 
+## Ring Camera's
+
+Afzonderlijk mobile-first cameradashboard met standaardkaarten, livebeeld op verzoek,
+bewegings- en deurbelgebeurtenissen en alleen bij lage batterij een waarschuwing.
+Zie [gebruik en veilig deployen](docs/RING_DASHBOARD.md). Bestaande dashboards blijven behouden.
+
 ## Energie & Thuisbatterij · YAML-dashboard
 
 Nieuw afzonderlijk donker dashboard met tabbladen Energie, Simulatie en Analyse.
@@ -78,3 +84,10 @@ zonder dubbeltellingen. Het aparte HA-package is lokaal voorbereid en nog niet g
 Het [synchronisatieonderzoek](docs/BATTERY_SYNC.md) bevat een lokaal, standaard uitgeschakeld
 auditvoorstel voor exacte simulatie-meetvensters, gevalideerd met een geïsoleerde HA-runtimeproef.
 Het voorstel is niet geïnstalleerd en is niet klaar voor directe productie-installatie.
+
+## AI-dagrapport
+
+Afzonderlijke read-only dagtaak met lokale HA-statistiekaggregatie, optionele GPT-4.1-mini-analyse,
+Telegram-fallback en een lokaal maandbudget van maximaal USD 0,50. Externe gegevensdeling vereist
+expliciete selectie per sensor. Geen wijzigingen aan bestaande HA-automatiseringen of batterijberekeningen.
+Zie [installatie, privacy en beperkingen](docs/AI_DAGRAPPORT.md). Niet live geïnstalleerd.

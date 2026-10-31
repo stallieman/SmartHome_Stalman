@@ -9,3 +9,13 @@ frontend:
 automation: !include automations.yaml
 script: !include scripts.yaml
 scene: !include scenes.yaml
+
+lovelace:
+  dashboards:
+    ring-cameras:
+      mode: yaml
+      title: Ring Camera's
+      icon: mdi:cctv
+      show_in_sidebar: true
+      require_admin: false
+      filename: dashboards/ring_cameras.yaml
