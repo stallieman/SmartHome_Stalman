@@ -1,0 +1,35 @@
+{
+  "scope": "day",
+  "observed_until": null,
+  "start": null,
+  "end": null,
+  "coverage_confirmed": false,
+  "paired_grid_deltas_confirmed": false,
+  "billing_period_complete": false,
+  "without": {
+    "import_kwh": {
+      "normal": null,
+      "offpeak": null
+    },
+    "export_kwh": null,
+    "netted_import_kwh": {
+      "normal": null,
+      "offpeak": null
+    },
+    "export_charges_confirmed": false,
+    "export_charges_eur": null
+  },
+  "with": {
+    "import_kwh": {
+      "normal": null,
+      "offpeak": null
+    },
+    "export_kwh": null,
+    "netted_import_kwh": {
+      "normal": null,
+      "offpeak": null
+    },
+    "export_charges_confirmed": false,
+    "export_charges_eur": null
+  }
+}

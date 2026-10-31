@@ -45,3 +45,13 @@ Deze entiteiten worden pas bij installatie van het bijgewerkte package aangemaak
 | `sensor.stalman_geladen_vandaag` | kWh | Dagmeter: Simulator geladen energie |
 | `sensor.stalman_huis_vandaag` | kWh | Import + zon − export, begrensd op nul |
 | `sensor.stalman_batterijbesparing_vandaag` | EUR | Dagscenario, uitsluitend met bevestigde tarieven |
+
+## Financiële revisie
+
+| Entiteit | Eenheid | Bron |
+|---|---|---|
+| `sensor.stalman_financiele_vergelijking` | status | Lokale gecontroleerde financiële berekening |
+| `sensor.stalman_kosten_zonder_batterij_vandaag` | EUR | Schatting op gemeten energie, maximaal 15 minuten oude invoer |
+| `sensor.stalman_kosten_met_batterij_vandaag` | EUR | Simulatie op dezelfde meetperiode |
+
+`stalman_batterijbesparing_vandaag` gebruikt nu het verschil tussen beide berekeningen; `stalman_besparingsscenario` toont uitsluitend een volledige afrekenperiode. De oude tariefhelpers zijn behouden voor compatibiliteit maar worden niet meer gebruikt voor geldberekeningen. Zie FINANCE.md.

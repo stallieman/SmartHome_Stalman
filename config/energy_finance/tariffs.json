@@ -1,0 +1,65 @@
+{
+  "netting_ends": "2027-01-01",
+  "plans": [
+    {
+      "id": "essent-contract-nog-te-bevestigen",
+      "valid_from": null,
+      "valid_until": null,
+      "confirmed": false,
+      "cash_basis_confirmed": false,
+      "vat_fraction": null,
+      "delivery_discount_fraction": "0.10",
+      "import": {
+        "normal": {
+          "quoted_total": "0.31274",
+          "quote_includes_vat": null,
+          "quote_includes_discount": null,
+          "delivery_ex_vat": null,
+          "energy_tax_ex_vat": null
+        },
+        "offpeak": {
+          "quoted_total": "0.30911",
+          "quote_includes_vat": null,
+          "quote_includes_discount": null,
+          "delivery_ex_vat": null,
+          "energy_tax_ex_vat": null
+        }
+      },
+      "export_credit_cash_per_kwh": null,
+      "export_fee_cash_per_kwh": null
+    },
+    {
+      "id": "essent-vanaf-2027-nog-te-bevestigen",
+      "valid_from": "2027-01-01",
+      "valid_until": null,
+      "confirmed": false,
+      "cash_basis_confirmed": false,
+      "vat_fraction": null,
+      "delivery_discount_fraction": "0.10",
+      "import": {
+        "normal": {
+          "quoted_total": null,
+          "quote_includes_vat": null,
+          "quote_includes_discount": null,
+          "delivery_ex_vat": null,
+          "energy_tax_ex_vat": null
+        },
+        "offpeak": {
+          "quoted_total": null,
+          "quote_includes_vat": null,
+          "quote_includes_discount": null,
+          "delivery_ex_vat": null,
+          "energy_tax_ex_vat": null
+        }
+      },
+      "export_credit_cash_per_kwh": "0.08343",
+      "export_fee_cash_per_kwh": "0.08092"
+    }
+  ],
+  "historical_reference_only": {
+    "period_label": "jaarrekening 2024-2025; exacte datums onbekend",
+    "import_kwh": 3133,
+    "export_kwh": 2366,
+    "net_import_kwh": 767
+  }
+}

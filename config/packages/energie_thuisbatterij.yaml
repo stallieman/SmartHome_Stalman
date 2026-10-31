@@ -42,12 +42,9 @@ template:
     default_entity_id: sensor.stalman_besparingsscenario
     unit_of_measurement: EUR
     device_class: monetary
-    availability: '{{ is_state(''input_boolean.stalman_tarieven_bevestigd'', ''on'') and is_number(states(''sensor.marstek_venus_e_5_12kwh_3nd_gen_total_energy_saved''))
-      and is_number(states(''sensor.marstek_venus_e_5_12kwh_3nd_gen_battery_energy_in'')) and is_number(states(''input_number.stalman_importtarief''))
-      and is_number(states(''input_number.stalman_exporttarief'')) }}'
-    state: '{{ (states(''sensor.marstek_venus_e_5_12kwh_3nd_gen_total_energy_saved'') | float(0) * states(''input_number.stalman_importtarief'')
-      | float(0) - states(''sensor.marstek_venus_e_5_12kwh_3nd_gen_battery_energy_in'') | float(0) * states(''input_number.stalman_exporttarief'')
-      | float(0)) | round(2) }}'
+    availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'') and is_number(state_attr(''sensor.stalman_financiele_vergelijking'',
+      ''saving_eur'')) and state_attr(''sensor.stalman_financiele_vergelijking'', ''scope'') == ''billing'' }}'
+    state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''saving_eur'') | float(0) }}'
   - name: Stalman huis vandaag
     unique_id: stalman_huis_vandaag
     default_entity_id: sensor.stalman_huis_vandaag
@@ -62,12 +59,33 @@ template:
     default_entity_id: sensor.stalman_batterijbesparing_vandaag
     unit_of_measurement: EUR
     device_class: monetary
-    availability: '{{ is_state(''input_boolean.stalman_tarieven_bevestigd'', ''on'') and is_number(states(''sensor.stalman_bespaard_vandaag''))
-      and is_number(states(''sensor.stalman_geladen_vandaag'')) and is_number(states(''input_number.stalman_importtarief''))
-      and is_number(states(''input_number.stalman_exporttarief'')) }}'
-    state: '{{ (states(''sensor.stalman_bespaard_vandaag'') | float(0) * states(''input_number.stalman_importtarief'')
-      | float(0) - states(''sensor.stalman_geladen_vandaag'') | float(0) * states(''input_number.stalman_exporttarief'')
-      | float(0)) | round(2) }}'
+    availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'') and is_number(state_attr(''sensor.stalman_financiele_vergelijking'',
+      ''saving_eur'')) and state_attr(''sensor.stalman_financiele_vergelijking'', ''scope'') == ''day'' and state_attr(''sensor.stalman_financiele_vergelijking'',
+      ''start'') == now().date().isoformat() and as_timestamp(now()) - 900 <= as_timestamp(state_attr(''sensor.stalman_financiele_vergelijking'',
+      ''observed_until''), 0) <= as_timestamp(now()) }}'
+    state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''saving_eur'') | float(0) }}'
+  - name: Stalman kosten zonder batterij vandaag
+    unique_id: stalman_kosten_zonder_batterij_vandaag
+    default_entity_id: sensor.stalman_kosten_zonder_batterij_vandaag
+    device_class: monetary
+    unit_of_measurement: EUR
+    availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'') and state_attr(''sensor.stalman_financiele_vergelijking'',
+      ''scope'') == ''day'' and state_attr(''sensor.stalman_financiele_vergelijking'', ''start'') == now().date().isoformat()
+      and is_number(state_attr(''sensor.stalman_financiele_vergelijking'', ''without_eur'')) and as_timestamp(now())
+      - 900 <= as_timestamp(state_attr(''sensor.stalman_financiele_vergelijking'', ''observed_until''), 0) <= as_timestamp(now())
+      }}'
+    state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''without_eur'') | float(0) }}'
+  - name: Stalman kosten met batterij vandaag
+    unique_id: stalman_kosten_met_batterij_vandaag
+    default_entity_id: sensor.stalman_kosten_met_batterij_vandaag
+    device_class: monetary
+    unit_of_measurement: EUR
+    availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'') and state_attr(''sensor.stalman_financiele_vergelijking'',
+      ''scope'') == ''day'' and state_attr(''sensor.stalman_financiele_vergelijking'', ''start'') == now().date().isoformat()
+      and is_number(state_attr(''sensor.stalman_financiele_vergelijking'', ''with_eur'')) and as_timestamp(now())
+      - 900 <= as_timestamp(state_attr(''sensor.stalman_financiele_vergelijking'', ''observed_until''), 0) <= as_timestamp(now())
+      }}'
+    state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''with_eur'') | float(0) }}'
 utility_meter:
   stalman_import_vandaag:
     source: sensor.p1_meter_energie_import
@@ -94,3 +112,20 @@ utility_meter:
     cycle: daily
     periodically_resetting: true
     always_available: false
+command_line:
+- sensor:
+    name: Stalman financiele vergelijking
+    unique_id: stalman_financiele_vergelijking
+    command: python3 /config/energy_finance/compare.py --config /config/energy_finance/tariffs.json --input /config/energy_finance/observations.json
+    scan_interval: 300
+    value_template: '{{ value_json.status }}'
+    json_attributes:
+    - reason
+    - start
+    - end
+    - scope
+    - classification
+    - without_eur
+    - with_eur
+    - saving_eur
+    - observed_until

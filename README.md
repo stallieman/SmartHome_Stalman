@@ -67,3 +67,7 @@ Gebruikt uitsluitend ingebouwde kaarten; het bestaande dashboard blijft behouden
 Zie [installatie en beheer](docs/ENERGIE_DASHBOARD.md),
 [gebruikte entiteiten](docs/ENTITIES.md) en [validatieresultaten](docs/VALIDATION.md).
 Activatie op de server vereist afzonderlijke expliciete toestemming.
+
+De [financiële handleiding](docs/FINANCE.md) beschrijft de Essent-contractinvoer,
+jaarlijkse saldering, regels vanaf 2027 en de vergelijking met de virtuele batterij.
+Onbevestigde contract- of meetgegevens blokkeren euro-uitkomsten.

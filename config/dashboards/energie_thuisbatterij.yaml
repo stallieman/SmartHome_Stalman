@@ -358,59 +358,48 @@ views:
   - type: grid
     cards:
     - type: heading
-      heading: Financieel scenario
+      heading: Kostenvergelijking · schatting
       icon: mdi:currency-eur
     - type: markdown
-      content: '**Nog niet beschikbaar** totdat tarieven zijn ingevuld en bevestigd.
-
-
-        Scenario tegen één vast tarief, toegepast op simulator-totalen sinds start/reset. Geen gerealiseerde opbrengst
-        of historische kostenberekening. Bij netladen, dynamische tarieven of saldering is dit model niet geschikt.'
+      content: 'Op gemeten netenergie, met virtuele batterij als simulatie. Zonder bevestigde contractgegevens en
+        gelijktijdige meetwaarden: **Nog niet beschikbaar**.'
     - type: tile
       entity: sensor.stalman_besparingsscenario
-      name: Netto scenario · geen gerealiseerde besparing
+      name: Periodebesparing · simulatie
       tap_action:
         action: more-info
       icon: mdi:calculator
       color: green
     - type: markdown
-      content: '**Terugverdientijd: nog niet beschikbaar.**
-
-
-        Er ontbreekt een representatieve gevalideerde jaarbesparing, inclusief tariefregels, verliezen en gebruikskosten.
-        Daarom berekenen we geen fictieve looptijd.'
+      content: '**Terugverdientijd: nog niet beschikbaar.**'
     - type: entities
-      title: Simulatoruitvoer · tariefbasis onbevestigd
+      title: Vandaag · gemeten basis versus simulatie
       show_header_toggle: false
       entities:
-      - entity: sensor.marstek_venus_e_5_12kwh_3nd_gen_money_saved_on_imports
-        name: Importbesparing · ongevalideerd
-      - entity: sensor.marstek_venus_e_5_12kwh_3nd_gen_extra_money_earned_on_exports
-        name: Extra exportopbrengst · ongevalideerd
-      - entity: sensor.marstek_venus_e_5_12kwh_3nd_gen_total_money_saved
-        name: Totaal · ongevalideerd
+      - entity: sensor.stalman_kosten_zonder_batterij_vandaag
+        name: Zonder batterij · geschatte kosten
+      - entity: sensor.stalman_kosten_met_batterij_vandaag
+        name: Met virtuele batterij · geschatte kosten
+      - entity: sensor.stalman_batterijbesparing_vandaag
+        name: Verschil · simulatie
+    - type: markdown
+      content: '{% if not is_state(''sensor.stalman_financiele_vergelijking'', ''ok'') %}
+
+        **Nog niet beschikbaar**
+
+
+        {{ state_attr(''sensor.stalman_financiele_vergelijking'', ''reason'') or ''Contractgegevens en gekoppelde
+        meetperiode ontbreken.'' }}
+
+        {% endif %}'
   - type: grid
     cards:
     - type: heading
-      heading: Scenario instellen
-      icon: mdi:tune
+      heading: Contract & rekenregels
+      icon: mdi:file-document-check-outline
     - type: markdown
-      content: Vul eigen tarieven en kosten in. Zet de bevestiging alleen aan wanneer beide tarieven kloppen en
-        de simulatie uitsluitend zonneoverschot laadt. **0 is een geldige invoer, geen aangenomen tarief.** Deze
-        helpers veranderen de Battery Simulator niet.
-    - type: entities
-      title: Eigen aannames
-      show_header_toggle: false
-      entities:
-      - entity: input_number.stalman_importtarief
-        name: Import · EUR/kWh
-      - entity: input_number.stalman_exporttarief
-        name: Exportvergoeding · EUR/kWh
-      - entity: input_number.stalman_aanschafkosten
-        name: Aanschaf incl. installatie · EUR
-      - entity: input_boolean.stalman_tarieven_bevestigd
-        name: Tarieven en model bevestigd
-    - type: markdown
-      content: Scenario = bespaarde import × importtarief − geladen energie × exportvergoeding. Geladen energie
-        is AC-energie die anders kon worden teruggeleverd; verliezen worden al door de simulatie verwerkt. Kosten
-        zijn gereserveerd voor een latere rendementsanalyse.
+      content: 'Tarieven en ingangsdatums: `energy_finance/tariffs.json`. Meetperiode: `energy_finance/observations.json`.
+
+
+        10% korting geldt uitsluitend voor levering. Tot 2027 is jaarlijkse saldering nodig; daarom geen dagelijkse
+        besparing vóór de ingangsdatum. Zie de financiële handleiding.'

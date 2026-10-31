@@ -4,8 +4,8 @@ Afzonderlijk YAML-dashboard voor Home Assistant 2026.10.4, voorbereid op 30 okto
 
 ## Bestanden
 
-- `config/dashboards/energie_thuisbatterij.yaml`: drie tabbladen, 43 ingebouwde kaarten.
-- `config/packages/energie_thuisbatterij.yaml`: twee templates, drie invoervelden, één bevestiging.
+- `config/dashboards/energie_thuisbatterij.yaml`: drie tabbladen, 42 ingebouwde kaarten.
+- `config/packages/energie_thuisbatterij.yaml`: zes templates, een command_line-adapter en bestaande invoervelden.
 - `config/themes/stalman_nacht.yaml`: donker thema met mintgroene en amberkleurige accenten.
 - `docs/activation.example.yaml`: te beoordelen registratiefragment; niet automatisch geladen.
 - `docs/ENTITIES.md`: alle 27 gebruikte entiteiten, inclusief 6 nieuwe lokale helpers/templates.
@@ -25,15 +25,7 @@ Sections toont maximaal drie kolommen en loopt op smalle schermen door in één 
 
 ## Financiële grenzen
 
-Er zijn geen tarieven, aanschafkosten of historische opbrengsten ingevuld. Getalhelpers beginnen bij hun minimum als er geen eerdere waarde is en herstellen daarna de ingevoerde waarde. Een numerieke nul betekent pas een bewuste aanname nadat de bevestiging is aangezet. De bevestiging begint na iedere HA-herstart uitgeschakeld.
-
-De scenariowaarde blijft `unavailable` totdat beide tarieven numeriek zijn, simulator-totalen beschikbaar zijn en de gebruiker het model bevestigt. Het dashboard legt uit waarom gegevens nog niet beschikbaar zijn.
-
-`scenario = total_energy_saved × importtarief − battery_energy_in × exportvergoeding`
-
-Dit is een gevoeligheidsberekening tegen één vast tarief op de geobserveerde simulatorperiode, geen historische factuur. Geladen AC-energie vertegenwoordigt misgelopen teruglevering; pas niet nogmaals efficiëntieverlies toe op de door de simulator bepaalde bespaarde import. Bevestig eerst dat uitsluitend zonneoverschot wordt geladen. Netladen, dynamische prijzen, negatieve tarieven en saldering vallen buiten dit eenvoudige model. De tariefhelpers wijzigen de integratie niet. Bij gewijzigde tarieven wordt de hele scenario-uitkomst opnieuw gewaardeerd; daarom heeft de geldtemplate bewust geen `state_class` voor langetermijnstatistieken.
-
-De bestaande financiële simulatorwaarden worden uitsluitend als ongevalideerde uitvoer getoond. Hun tariefbasis is niet onderzocht omdat integratieopties geheimen kunnen bevatten. Aanschafkosten zijn voorbereid voor latere analyse. Er wordt nog geen terugverdientijd berekend: daarvoor ontbreken een representatief volledig meetjaar, bevestigde tariefregels en netto jaaropbrengst inclusief gebruikskosten/degradatie.
+De financiële rekenregels zijn vervangen door de [Essent-vergelijking](FINANCE.md). Deze gebruikt afzonderlijke gemeten en gesimuleerde netimport/export per tariefgroep en periode. Oude tariefhelpers activeren geen berekening meer. Ontbrekende contract- en meetgegevens blokkeren bedragen; er wordt geen terugverdientijd berekend.
 
 ## Installatie — pas na expliciete toestemming
 
@@ -46,7 +38,7 @@ Deze stappen zijn **niet uitgevoerd**. De lokale hoofdconfiguratie is niet gewij
 5. Voer via Home Assistant **Ontwikkelaarstools → YAML → Configuratie controleren** uit. Bij fouten niet herstarten. Pas na een geslaagde controle en toestemming Home Assistant herstarten om package en dashboardregistratie te laden. Docker-roottoegang is hiervoor niet nodig. Bij afwezigheid van deze beheerrechten: laat de beheerder deze stap doen.
 6. Open het nieuwe zijbalkdashboard, pad `/energie-thuisbatterij-yaml/energie`. Het bestaande ‘Energie & Thuisbatterij’ blijft daarnaast beschikbaar. Controleer dat beide nieuwe template-ID’s exact overeenkomen met de inventaris; bestaande naamconflicten kunnen een suffix veroorzaken.
 7. Controleer desktop en iPhone (circa 390 px breed): leesbaarheid, grafieken, scrollvolgorde, donker thema. Verifieer P1-teken, Growatt-eenheid en actualiteit; SoC en vermogen horen bij **simulatie**. Vergelijk datumselectie met de ingebouwde Energie-pagina. Lege historie is toegestaan zolang de bron nog geen statistieken heeft.
-8. Vul optioneel eigen scenario-invoer in. Bevestig deze pas na controle van tarieven, simulatorperiode en laadstrategie. Houd terugverdientijd op ‘nog niet beschikbaar’.
+8. Vul financiële contract- en meetinvoer alleen volgens FINANCE.md in; de oude tariefhelpers worden niet meer gebruikt. Houd terugverdientijd op ‘nog niet beschikbaar’.
 
 ## Beheer en herstel
 
@@ -82,11 +74,11 @@ Het eerste tabblad heet nu **Overzicht**; het bestaande pad `energie` is behoude
 
 Vier secties vormen maximaal twee kolommen: Actueel, Vandaag, Energiestromen en Verbruik. Op de iPhone worden secties onder elkaar geplaatst; de cijferkaarten staan per twee. Native Markdown-kaarten gebruiken grote cijfers en expliciete eenheden. Kleuren en thema blijven behouden. Netto P1-vermogen toont + voor afname en − voor teruglevering. De batterijkaart bevat zowel SoC als laad-/ontlaadvermogen in W en het label simulatie.
 
-Vijf nieuwe `utility_meter`-dagmeters volgen import, export, zonneproductie, bespaarde import en geladen batterij-energie. Een aanvullende template bepaalt huisverbruik als import + zon − export; een tweede berekent het dagscenario met dezelfde bevestigde vaste tariefaannames als het bestaande totale scenario. De eerste dag bevat alleen metingen sinds installatie; dit staat kort in de interface. Er wordt geen eerdere daghistorie gereconstrueerd. Verlies van brondata maakt nieuwe templates onbeschikbaar. Laat de simulator niet resetten midden op een vergelijkingsdag.
+Vijf nieuwe `utility_meter`-dagmeters volgen import, export, zonneproductie, bespaarde import en geladen batterij-energie. Een aanvullende template bepaalt huisverbruik als import + zon − export; de geldtemplate krijgt haar uitkomst uitsluitend uit de gecontroleerde Essent-vergelijking (zie FINANCE.md). De eerste dag bevat alleen metingen sinds installatie; dit staat kort in de interface. Er wordt geen eerdere daghistorie gereconstrueerd. Verlies van brondata maakt nieuwe templates onbeschikbaar. Laat de simulator niet resetten midden op een vergelijkingsdag.
 
 De energiestroomvisualisatie en daggrafiek gebruiken centrale Recorder-statistieken, met een eigen collectie `energy_stalman_overzicht` zonder datumkiezer. Ze tonen standaard vandaag. De dagmeters kunnen op de eerste installatiedag minder historie bevatten dan die energiekaarten. De grafiek toont elektriciteitsverbruik in kWh per tijdvak; actuele W staan bovenaan. De virtuele batterij wordt niet aan de werkelijke energiestromen toegevoegd.
 
-De nieuwe besparingskaart toont **Nog niet beschikbaar** bij ontbrekende brondata of onbevestigde tarieven. Een bevestigde nulprijs is wel toegestaan. De uitkomst blijft een scenario, geen werkelijke eurobesparing. Tarieven, saldering en laadstrategie moeten nog worden bevestigd.
+De besparingskaart toont **Nog niet beschikbaar** bij ontbrekende brondata, onbevestigde contracttarieven of een dagperiode waarvoor jaarlijkse saldering geldt. Een bevestigde nulprijs is wel toegestaan. De uitkomst blijft een scenario, geen werkelijke eurobesparing. Tarieven, saldering en laadstrategie moeten nog worden bevestigd.
 
 Voor installatie van deze revisie zijn alleen de dashboard-YAML en package-YAML veranderd. Er zijn geen wijzigingen nodig aan hoofdconfiguratie, dashboardregistratie of thema als de eerdere installatie actief is. Nieuwe dagmeters vereisen configuratiecontrole en een passende herlaad-/herstartprocedure, uitsluitend na afzonderlijke toestemming. Er is tijdens dit herontwerp niets op Ubuntu gewijzigd.
 

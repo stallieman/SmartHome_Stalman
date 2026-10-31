@@ -23,3 +23,8 @@ config/*.log.*
 .DS_Store
 *.swp
 *~
+
+# Local financial observations and Python runtime
+config/energy_finance/observations.json
+__pycache__/
+*.pyc

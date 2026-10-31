@@ -30,3 +30,7 @@ Dit is een offline structuur- en templatecontrole, geen volledige Home Assistant
 - Bestaande bron-ID’s opnieuw read-only via SSH gecontroleerd in het entity-register; alle benodigde P1-, Growatt- en batterijbronnen staan ingeschakeld. Ook de eerder toegevoegde woningvermogen- en financiële templates zijn inmiddels geregistreerd.
 - Geen live sensorstatus of frontend-rendering gecontroleerd. Volledige HA-schema- en iPhone-/desktopvalidatie blijven onderdeel van de installatie na toestemming.
 - Geen serverbestanden gewijzigd, geen Home Assistant-herstart en geen push uitgevoerd.
+
+## Financiële revisie · 2026-10-31
+
+28 onafhankelijke unittest-scenario's slagen: korting uitsluitend op levering, reeds verwerkte korting, btw-basis, normaal/dal, jaarlijkse saldering, overschot, terugleverkosten, verliezen via netmetingen, negatieve besparing, nulprijzen, ontbrekende/ongeldige data, overlappende plannen en ingangsdatum. Historische jaarreferentie beïnvloedt geen meetberekening. YAML en HA-templates slagen met tests voor onbeschikbare, oude en verouderde dagrapporten. Commandoregeladapter geeft bij lege productie-invoer `unavailable` met null-bedragen. Geen HA-schema-/live test of serverwijziging uitgevoerd. Zie FINANCE.md voor de geblokkeerde gegevensaanvoer en vereiste contractinformatie.

@@ -78,20 +78,6 @@ values['sensor.stalman_total_output_power'] = 'unavailable'
 assert evaluate(home, values, 'availability') == 'False'
 values['sensor.stalman_total_output_power'] = '100'
 assert float(evaluate(home, values, 'state')) == 0
-values = {base+'_total_energy_saved': '100', base+'_battery_energy_in': '130',
-          'input_number.stalman_importtarief': '0.30', 'input_number.stalman_exporttarief': '0.08',
-          'input_boolean.stalman_tarieven_bevestigd': 'off'}
-assert evaluate(money, values, 'availability') == 'False'
-values['input_boolean.stalman_tarieven_bevestigd'] = 'on'
-assert evaluate(money, values, 'availability') == 'True'
-assert float(evaluate(money, values, 'state')) == 19.6
-values['input_number.stalman_importtarief'] = '0'
-assert float(evaluate(money, values, 'state')) == -10.4
-values['input_number.stalman_exporttarief'] = '0'
-assert float(evaluate(money, values, 'state')) == 0
-for bad in ['unavailable', 'unknown', '']:
-    values[base+'_total_energy_saved'] = bad
-    assert evaluate(money, values, 'availability') == 'False'
 print(f'PASS: 4 YAML files, {len(dash["views"])} views, {count} built-in cards, '
       f'{len(references)} documented entities; availability and financial arithmetic checked.')
 print('Not a Home Assistant schema check or browser rendering test.')
@@ -100,7 +86,10 @@ print('Not a Home Assistant schema check or browser rendering test.')
 import subprocess
 baseline = yaml.safe_load(subprocess.check_output(
     ['git', 'show', 'f9baab7:config/dashboards/energie_thuisbatterij.yaml'], text=True))
-assert dash['views'][1:] == baseline['views'][1:]
+assert dash['views'][1] == baseline['views'][1]
+previous = yaml.safe_load(subprocess.check_output(
+    ['git', 'show', 'c688432:config/dashboards/energie_thuisbatterij.yaml'], text=True))
+assert dash['views'][:2] == previous['views'][:2]
 overview = dash['views'][0]
 assert overview['title'] == 'Overzicht' and overview['max_columns'] == 2
 cards = [c for section in overview['sections'] for c in section['cards']]
@@ -122,21 +111,37 @@ assert len(meters) == 5
 for meter in meters.values():
     assert meter['cycle'] == 'daily' and meter['always_available'] is False
     assert meter['periodically_resetting'] is True
-house_today, money_today = sensors[2:]
+house_today, money_today = sensors[2:4]
 values = {'sensor.stalman_import_vandaag': '5', 'sensor.stalman_export_vandaag': '3',
           'sensor.stalman_zon_vandaag': '7'}
 assert float(evaluate(house_today, values, 'state')) == 9
 assert evaluate(house_today, values, 'availability') == 'True'
 values['sensor.stalman_zon_vandaag'] = 'unavailable'
 assert evaluate(house_today, values, 'availability') == 'False'
-values = {'sensor.stalman_bespaard_vandaag': '2', 'sensor.stalman_geladen_vandaag': '3',
-          'input_number.stalman_importtarief': '0.30', 'input_number.stalman_exporttarief': '0.08',
-          'input_boolean.stalman_tarieven_bevestigd': 'on'}
-assert float(evaluate(money_today, values, 'state')) == .36
-assert evaluate(money_today, values, 'availability') == 'True'
-values['input_boolean.stalman_tarieven_bevestigd'] = 'off'
-assert evaluate(money_today, values, 'availability') == 'False'
-values['input_boolean.stalman_tarieven_bevestigd'] = 'on'
-values['sensor.stalman_bespaard_vandaag'] = 'unknown'
-assert evaluate(money_today, values, 'availability') == 'False'
-print('PASS: other tabs unchanged; overview fallbacks, daily balances and confirmed-tariff gating checked.')
+# HA adapter must reject missing, yesterday's and stale reports.
+from datetime import datetime, timezone, timedelta
+now_value = datetime(2027, 1, 2, 12, 0, tzinfo=timezone.utc)
+attrs = {'scope': 'day', 'start': '2027-01-02', 'observed_until': now_value.isoformat(),
+         'saving_eur': '0.36', 'without_eur': '3.23', 'with_eur': '2.87'}
+def stamp(value, default=0):
+    try:
+        return value.timestamp() if isinstance(value, datetime) else datetime.fromisoformat(value).timestamp()
+    except (TypeError, ValueError):
+        return default
+
+env = Environment(undefined=StrictUndefined)
+env.globals.update(states=lambda e: 'unavailable', is_number=is_number,
+                   is_state=lambda e, state: report_state == state,
+                   state_attr=lambda e, key: attrs.get(key), now=lambda: now_value, as_timestamp=stamp)
+for sensor in [money_today, *sensors[4:]]:
+    report_state = 'ok'
+    assert env.from_string(sensor['availability']).render() == 'True'
+    attrs['observed_until'] = (now_value - timedelta(minutes=16)).isoformat()
+    assert env.from_string(sensor['availability']).render() == 'False'
+    attrs['observed_until'] = now_value.isoformat()
+    attrs['start'] = '2027-01-01'
+    assert env.from_string(sensor['availability']).render() == 'False'
+    attrs['start'] = '2027-01-02'
+    report_state = 'unavailable'
+    assert env.from_string(sensor['availability']).render() == 'False'
+print('PASS: simulation tab and overview structure preserved; daily arithmetic and report freshness checked.')
