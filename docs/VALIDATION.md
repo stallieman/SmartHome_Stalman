@@ -44,3 +44,7 @@ Dit is een offline structuur- en templatecontrole, geen volledige Home Assistant
 De oorspronkelijke eis van recente timestamps voor alle tellers is vervangen door onafhankelijke P1-/simulatorwaarnemingen. Het read-only broncode- en API-onderzoek bevestigt dat de geïnstalleerde simulator geen verwerkte P1-meetperiode publiceert. Financiële collector-export is daarom onvoorwaardelijk geblokkeerd; een handmatige vlag kan dat niet omzeilen. De regressietest vergelijkt rechtstreeks met `6fa804e`: oude statische exporttimestamps worden nu bruikbaar bewaard naast actieve import, zonder onterechte financiële koppeling. Zie INTERVAL_COLLECTOR.md. Productiedata of tokens zijn niet opgeslagen.
 
 Resultaat bronbewuste revisie: 58 unittests geslaagd, plus beide offline YAML-/templatevalidators en `git diff --check`. Geen serverwijziging, herstart of push.
+
+## Synchronisatieonderzoek en auditvoorstel
+
+87 unittests slagen. Drie offline validators slagen voor dashboard, broncollector en auditadapter. De echte upstream-initializer uit v2.9.0 is met de geïnstalleerde SHA256 vergeleken en lokaal getransformeerd; alle oorspronkelijke method bodies blijven AST-gelijk, voorgestelde code compileert. Dit is geen HA-runtime-/physics-pariteitstest. Het auditvoorstel blijft standaard uit, de geïnstalleerde HACS-code is niet aangepast en er is niets op de server gewijzigd. Zie BATTERY_SYNC.md voor resterende productievoorwaarden.

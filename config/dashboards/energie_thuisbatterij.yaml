@@ -392,6 +392,34 @@ views:
         meetperiode ontbreken.'' }}
 
         {% endif %}'
+    - type: entities
+      title: Gecertificeerd meetvenster · schatting
+      show_header_toggle: false
+      entities:
+      - entity: sensor.stalman_meetvenster_zonder
+        name: Zonder batterij · gemeten basis
+      - entity: sensor.stalman_meetvenster_met
+        name: Met virtuele batterij · simulatie
+      - entity: sensor.stalman_meetvenster_verschil
+        name: Financieel verschil · simulatie
+    - type: markdown
+      content: '{% if is_state(''sensor.stalman_financiele_vergelijking'', ''ok'') and state_attr(''sensor.stalman_financiele_vergelijking'',
+        ''scope'') == ''window'' %}
+
+        **Alleen dit meetvenster:**
+
+
+        {{ state_attr(''sensor.stalman_financiele_vergelijking'', ''measured_from'') }} → {{ state_attr(''sensor.stalman_financiele_vergelijking'',
+        ''observed_until'') }}
+
+
+        Geen volledige dag of jaarrekening.
+
+        {% else %}
+
+        **Gecertificeerd meetvenster: nog niet beschikbaar.**
+
+        {% endif %}'
   - type: grid
     cards:
     - type: heading

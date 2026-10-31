@@ -4,8 +4,8 @@ Afzonderlijk YAML-dashboard voor Home Assistant 2026.10.4, voorbereid op 30 okto
 
 ## Bestanden
 
-- `config/dashboards/energie_thuisbatterij.yaml`: drie tabbladen, 42 ingebouwde kaarten.
-- `config/packages/energie_thuisbatterij.yaml`: zes templates, een command_line-adapter en bestaande invoervelden.
+- `config/dashboards/energie_thuisbatterij.yaml`: drie tabbladen, 44 ingebouwde kaarten.
+- `config/packages/energie_thuisbatterij.yaml`: negen templates, een command_line-adapter en bestaande invoervelden.
 - `config/themes/stalman_nacht.yaml`: donker thema met mintgroene en amberkleurige accenten.
 - `docs/activation.example.yaml`: te beoordelen registratiefragment; niet automatisch geladen.
 - `docs/ENTITIES.md`: alle 27 gebruikte entiteiten, inclusief 6 nieuwe lokale helpers/templates.
@@ -83,3 +83,5 @@ De besparingskaart toont **Nog niet beschikbaar** bij ontbrekende brondata, onbe
 Voor installatie van deze revisie zijn alleen de dashboard-YAML en package-YAML veranderd. Er zijn geen wijzigingen nodig aan hoofdconfiguratie, dashboardregistratie of thema als de eerdere installatie actief is. Nieuwe dagmeters vereisen configuratiecontrole en een passende herlaad-/herstartprocedure, uitsluitend na afzonderlijke toestemming. Er is tijdens dit herontwerp niets op Ubuntu gewijzigd.
 
 Aanvullende bronnen: [Utility Meter en eerste onvolledige cyclus](https://www.home-assistant.io/integrations/utility_meter/) en [Markdown-kaarten met templates](https://www.home-assistant.io/dashboards/markdown/).
+
+De financiële analyse bevat nu afzonderlijke kaarten voor een geattesteerd meetvenster; het begin/einde blijft zichtbaar en de bedragen worden niet als dag- of jaartotaal gepresenteerd. Auditproducent en toestemming staan uit. Zie BATTERY_SYNC.md.

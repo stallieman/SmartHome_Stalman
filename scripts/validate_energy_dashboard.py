@@ -133,7 +133,7 @@ env = Environment(undefined=StrictUndefined)
 env.globals.update(states=lambda e: 'unavailable', is_number=is_number,
                    is_state=lambda e, state: report_state == state,
                    state_attr=lambda e, key: attrs.get(key), now=lambda: now_value, as_timestamp=stamp)
-for sensor in [money_today, *sensors[4:]]:
+for sensor in [s for s in sensors if s['unique_id'].endswith('vandaag') and s['device_class'] == 'monetary']:
     report_state = 'ok'
     assert env.from_string(sensor['availability']).render() == 'True'
     attrs['observed_until'] = (now_value - timedelta(minutes=16)).isoformat()
@@ -145,3 +145,13 @@ for sensor in [money_today, *sensors[4:]]:
     report_state = 'unavailable'
     assert env.from_string(sensor['availability']).render() == 'False'
 print('PASS: simulation tab and overview structure preserved; daily arithmetic and report freshness checked.')
+
+# A certified window is deliberately separate from today's/annual costs.
+attrs['scope'] = 'window'
+report_state = 'ok'
+for sensor in [s for s in sensors if s['unique_id'].startswith('stalman_meetvenster_')]:
+    assert env.from_string(sensor['availability']).render() == 'True'
+    attrs['scope'] = 'day'
+    assert env.from_string(sensor['availability']).render() == 'False'
+    attrs['scope'] = 'window'
+print('PASS: window-only monetary sensors cannot become daily totals.')

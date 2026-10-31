@@ -1,0 +1,21 @@
+shell_command:
+  stalman_audit_collect: python3 /config/energy_finance/collector.py --config /config/energy_finance/collector.json
+    --database /config/energy_finance/intervals.sqlite --output /config/energy_finance/observations.json --audit-batch-url
+    "{{ packet | to_json | urlencode }}"
+automation:
+- id: stalman_audit_collect
+  alias: Stalman atomair simulatiebewijs ontvangen
+  mode: queued
+  max: 30
+  triggers:
+  - trigger: event
+    event_type: battery_sim_stalman_audit_batch
+  actions:
+  - action: shell_command.stalman_audit_collect
+    data:
+      packet: '{{ trigger.event.data }}'
+    response_variable: audit_result
+  - if: '{{ audit_result.returncode != 0 }}'
+    then:
+    - stop: Ongeldig auditbewijs; financiële vergelijking geblokkeerd.
+      error: true

@@ -26,5 +26,11 @@
       "activity_age_seconds": 120
     }
   },
-  "pairing_mode": "blocked_missing_simulator_source_window"
+  "pairing_mode": "blocked_missing_simulator_source_window",
+  "audit": {
+    "enabled": false,
+    "battery_id": "01M678WZZ6M086SEWQ1QENFZ8Z",
+    "status": "proposal_not_installed_or_approved",
+    "expected_helper_sha256": "4cf93dc91a4b7ba1ab1c49f0a975f4b664622e500be8bc7ddb31c2de40b26923"
+  }
 }

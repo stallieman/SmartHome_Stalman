@@ -1,5 +1,7 @@
 # Bronbewuste P1 / Marstek-verzameling — revisie 2
 
+**Aanvulling:** een standaard uitgeschakeld, lokaal auditvoorstel is toegevoegd. Zie [BATTERY_SYNC.md](BATTERY_SYNC.md). De onderstaande blokkade blijft gelden voor de ongewijzigde simulator en ruwe snapshots; alleen een afzonderlijk goedgekeurde atomaire auditproducent kan het nieuwe vensterkanaal gebruiken.
+
 Lokaal ontwikkeld na de live steekproeven. De server is uitsluitend read-only onderzocht. Er is niets geïnstalleerd of herstart.
 
 ## Onderzoek: de benodigde simulatorinformatie ontbreekt

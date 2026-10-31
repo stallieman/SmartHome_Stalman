@@ -1,7 +1,8 @@
 """Source-aware diagnostic collection; no timestamp-only financial pairing.
 
 The installed Battery Simulator does not publish the P1 counters it processed.
-Consequently observations() deliberately cannot produce billable paired input.
+By default observations() cannot produce paired input. An optional, disabled
+proposal consumer requires atomic evidence from a reviewed instrumented producer.
 """
 import argparse
 import fcntl
@@ -159,6 +160,8 @@ class Collector:
         self.db.execute('PRAGMA journal_mode=WAL')
         # New tables preserve the complete v1 journal; none of its intervals are promoted.
         self.db.executescript('''
+          CREATE TABLE IF NOT EXISTS audit_packets_v1 (generation TEXT, sequence INTEGER, payload TEXT, config_hash TEXT, end_ts TEXT, PRIMARY KEY(generation, sequence));
+          CREATE TABLE IF NOT EXISTS audit_faults_v1 (generation TEXT);
           CREATE TABLE IF NOT EXISTS snapshots_v2 (
             ts TEXT PRIMARY KEY, payload TEXT NOT NULL, config_hash TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS source_observations_v2 (
@@ -166,6 +169,37 @@ class Collector:
             state TEXT, change_data TEXT, PRIMARY KEY (ts, source));
           CREATE TABLE IF NOT EXISTS faults_v2 (ts TEXT NOT NULL, reason TEXT NOT NULL);
         ''')
+
+    def ingest_audit(self, packet):
+        """Store an atomic proposal packet; raw snapshots cannot use this channel."""
+        try:
+            from .batch_contract import SOURCE_SHA
+        except ImportError:
+            from batch_contract import SOURCE_SHA
+        if not isinstance(packet, dict):
+            raise InvalidSample('invalid_audit_packet')
+        if packet.get('producer') != 'stalman_audit_v1' or packet.get('upstream_sha256') != SOURCE_SHA:
+            raise InvalidSample('unrecognized_audit_producer')
+        generation, sequence = packet['generation'], packet['sequence']
+        if not isinstance(generation, str) or not generation or type(sequence) is not int or sequence < 1:
+            raise InvalidSample('invalid_audit_identity')
+        timestamp(packet['processing_start'])
+        timestamp(packet['processing_end'])
+        raw = encoded(packet)
+        with self.db:
+            self.db.execute('BEGIN IMMEDIATE')
+            prior = self.db.execute('SELECT payload FROM audit_packets_v1 WHERE generation=? AND sequence=?',
+                                    (generation, sequence)).fetchone()
+            if prior:
+                if prior[0] != raw:
+                    self.db.execute('INSERT INTO audit_faults_v1 VALUES (?)', (generation,))
+                    # Keep a durable fault before reporting an invalid duplicate.
+                    self.db.commit()
+                    raise InvalidSample('conflicting_audit_duplicate')
+                return {'status': 'duplicate_audit'}
+            self.db.execute('INSERT INTO audit_packets_v1 VALUES (?,?,?,?,?)',
+                            (generation, sequence, raw, self.fingerprint, timestamp(packet['processing_end']).isoformat()))
+        return {'status': 'audit_packet_recorded_not_automatically_certified'}
 
     def close(self):
         self.db.close()
@@ -222,12 +256,31 @@ class Collector:
             raise
 
     def observations(self, day_string):
-        """No manual flag, cadence or last_reported comparison can bypass this gate.
-
-        A future implementation needs simulator-origin batch IDs, consumed P1
-        counter boundaries and atomic simulated outputs before adding pairing.
+        """Raw snapshots never authorize pairing. The proposal channel is separately
+        disabled by default and requires a complete atomic audit packet chain.
         """
         day = datetime.fromisoformat(day_string).date()
+        if self.config.get('audit', {}).get('enabled') is True:
+            try:
+                from .batch_contract import consume
+            except ImportError:
+                from batch_contract import consume
+            with self.db:
+                self.db.execute('BEGIN')
+                latest = self.db.execute('SELECT generation FROM audit_packets_v1 ORDER BY end_ts DESC LIMIT 1').fetchone()
+                packets = self.db.execute('SELECT payload,config_hash FROM audit_packets_v1 WHERE generation=? ORDER BY sequence',
+                                          (latest[0],)).fetchall() if latest else []
+                faults = self.db.execute('SELECT 1 FROM audit_faults_v1 WHERE generation=?', (latest[0],)).fetchone() if latest else None
+            try:
+                if faults or any(row[1] != self.fingerprint for row in packets):
+                    raise InvalidSample('audit_fault_or_changed_configuration')
+                result = consume(self.config, [json.loads(row[0]) for row in packets])
+                if result['start'] != str(day):
+                    raise InvalidSample('audit_window_is_not_requested_day')
+                return result
+            except (InvalidSample, KeyError, ValueError, TypeError) as exc:
+                return {'coverage_confirmed': False, 'paired_grid_deltas_confirmed': False,
+                        'reason': str(exc), 'without': None, 'with': None}
         return {'scope': 'day', 'start': str(day), 'end': str(day + timedelta(days=1)),
                 'coverage_confirmed': False, 'paired_grid_deltas_confirmed': False,
                 'reason': 'simulator_processed_p1_window_unavailable', 'without': None, 'with': None,
@@ -255,6 +308,7 @@ def main():
     parser.add_argument('--database', type=Path, required=True)
     parser.add_argument('--sample', type=Path)
     parser.add_argument('--sample-url')
+    parser.add_argument('--audit-batch-url')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     collector, lock = None, None
@@ -262,10 +316,16 @@ def main():
         lock = open(str(args.database) + '.lock', 'a')
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         config = json.loads(args.config.read_text())
-        sample = json.loads(unquote(args.sample_url)) if args.sample_url else json.loads(args.sample.read_text())
         collector = Collector(args.database, config)
-        result = collector.ingest(sample)
-        export = collector.observations(timestamp(sample['captured_at']).astimezone(TZ).date().isoformat())
+        if args.audit_batch_url:
+            packet = json.loads(unquote(args.audit_batch_url))
+            result = collector.ingest_audit(packet)
+            observed = packet['processing_end']
+        else:
+            sample = json.loads(unquote(args.sample_url)) if args.sample_url else json.loads(args.sample.read_text())
+            result = collector.ingest(sample)
+            observed = sample['captured_at']
+        export = collector.observations(timestamp(observed).astimezone(TZ).date().isoformat())
         atomic_json(args.output, export)
         print(encoded(result))
     except (InvalidSample, OSError, sqlite3.Error, ValueError, KeyError, TypeError) as exc:

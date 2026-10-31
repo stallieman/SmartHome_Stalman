@@ -55,3 +55,13 @@ Deze entiteiten worden pas bij installatie van het bijgewerkte package aangemaak
 | `sensor.stalman_kosten_met_batterij_vandaag` | EUR | Simulatie op dezelfde meetperiode |
 
 `stalman_batterijbesparing_vandaag` gebruikt nu het verschil tussen beide berekeningen; `stalman_besparingsscenario` toont uitsluitend een volledige afrekenperiode. De oude tariefhelpers zijn behouden voor compatibiliteit maar worden niet meer gebruikt voor geldberekeningen. Zie FINANCE.md.
+
+## Voorgesteld atomair auditmeetvenster (standaard uit)
+
+| Entiteit | Eenheid | Betekenis |
+|---|---|---|
+| `sensor.stalman_meetvenster_zonder` | EUR | Geschatte kosten op exact geattesteerde P1-input |
+| `sensor.stalman_meetvenster_met` | EUR | Geschatte kosten van de virtuele batterij voor dezelfde input |
+| `sensor.stalman_meetvenster_verschil` | EUR | Verschil, met expliciete begin-/eindmetadata |
+
+Deze sensoren vereisen scope `window` en nemen nooit de plaats in van een dag- of jaartotaal. De voorgestelde auditproducent is niet geïnstalleerd of goedgekeurd.

@@ -1,0 +1,15 @@
+--- a/custom_components/battery_sim/__init__.py
++++ b/custom_components/battery_sim/__init__.py
+@@ -1,0 +2,2 @@
++
++from .stalman_audit import audit_tracking, audit_reading, audit_processing, audit_reset
+@@ -744,0 +747 @@
++    @audit_reset
+@@ -782,0 +786 @@
++    @audit_reset
+@@ -825,0 +830 @@
++    @audit_tracking
+@@ -863,0 +869 @@
++    @audit_reading
+@@ -1044,0 +1051 @@
++    @audit_processing

@@ -86,6 +86,45 @@ template:
       - 900 <= as_timestamp(state_attr(''sensor.stalman_financiele_vergelijking'', ''observed_until''), 0) <= as_timestamp(now())
       }}'
     state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''with_eur'') | float(0) }}'
+  - name: Stalman meetvenster zonder
+    unique_id: stalman_meetvenster_zonder
+    default_entity_id: sensor.stalman_meetvenster_zonder
+    device_class: monetary
+    unit_of_measurement: EUR
+    availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'') and state_attr(''sensor.stalman_financiele_vergelijking'',
+      ''scope'') == ''window'' and is_number(state_attr(''sensor.stalman_financiele_vergelijking'', ''without_eur''))
+      }}'
+    state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''without_eur'') | float(0) }}'
+    attributes:
+      measured_from: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''measured_from'') }}'
+      observed_until: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''observed_until'') }}'
+      classification: schatting; virtuele batterij is simulatie; uitsluitend aangegeven meetvenster
+  - name: Stalman meetvenster met
+    unique_id: stalman_meetvenster_met
+    default_entity_id: sensor.stalman_meetvenster_met
+    device_class: monetary
+    unit_of_measurement: EUR
+    availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'') and state_attr(''sensor.stalman_financiele_vergelijking'',
+      ''scope'') == ''window'' and is_number(state_attr(''sensor.stalman_financiele_vergelijking'', ''with_eur''))
+      }}'
+    state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''with_eur'') | float(0) }}'
+    attributes:
+      measured_from: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''measured_from'') }}'
+      observed_until: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''observed_until'') }}'
+      classification: schatting; virtuele batterij is simulatie; uitsluitend aangegeven meetvenster
+  - name: Stalman meetvenster verschil
+    unique_id: stalman_meetvenster_verschil
+    default_entity_id: sensor.stalman_meetvenster_verschil
+    device_class: monetary
+    unit_of_measurement: EUR
+    availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'') and state_attr(''sensor.stalman_financiele_vergelijking'',
+      ''scope'') == ''window'' and is_number(state_attr(''sensor.stalman_financiele_vergelijking'', ''saving_eur''))
+      }}'
+    state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''saving_eur'') | float(0) }}'
+    attributes:
+      measured_from: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''measured_from'') }}'
+      observed_until: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''observed_until'') }}'
+      classification: schatting; virtuele batterij is simulatie; uitsluitend aangegeven meetvenster
 utility_meter:
   stalman_import_vandaag:
     source: sensor.p1_meter_energie_import

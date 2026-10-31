@@ -84,8 +84,8 @@ def calculate(config, observation):
     except (ValueError, TypeError) as exc:
         raise Unavailable('Missing or invalid observation timestamp') from exc
     netting = start < boundary
-    daily = observation.get('scope') == 'day'
-    require(observation.get('scope') in ('day', 'billing'), 'Invalid scope')
+    daily = observation.get('scope') in ('day', 'window')
+    require(observation.get('scope') in ('day', 'window', 'billing'), 'Invalid scope')
     if daily:
         require(end == start + timedelta(days=1), 'Daily report must cover one calendar day')
         require(not netting, 'Annual netting cannot be calculated as a daily saving')
