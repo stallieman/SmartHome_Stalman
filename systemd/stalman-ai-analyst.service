@@ -1,0 +1,30 @@
+[Unit]
+Description=Read-only Home Assistant daily energy analyst
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=stalman-ai
+Group=stalman-ai
+EnvironmentFile=/etc/stalman-ai-analyst.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+Environment=TZ=Europe/Amsterdam
+ExecStart=/opt/stalman-ai-analyst/.venv/bin/python /opt/stalman-ai-analyst/daily.py --config /etc/stalman-ai-analyst.json --state-dir /var/lib/stalman-ai-analyst
+StateDirectory=stalman-ai-analyst
+StateDirectoryMode=0700
+UMask=0077
+TimeoutStartSec=10min
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+CapabilityBoundingSet=

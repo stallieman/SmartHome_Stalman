@@ -1,0 +1,56 @@
+{
+  "timezone": "Europe/Amsterdam",
+  "ha_url": "http://127.0.0.1:8123",
+  "sensors": [
+    {
+      "id": "grid_import",
+      "entity_id": "sensor.p1_meter_energie_import",
+      "statistic_id": "sensor.p1_meter_energie_import",
+      "label": "Netafname",
+      "unit": "kWh",
+      "kind": "total_increasing",
+      "share_with_ai": false,
+      "share_with_telegram": false
+    },
+    {
+      "id": "grid_export",
+      "entity_id": "sensor.p1_meter_energie_export",
+      "statistic_id": "sensor.p1_meter_energie_export",
+      "label": "Teruglevering",
+      "unit": "kWh",
+      "kind": "total_increasing",
+      "share_with_ai": false,
+      "share_with_telegram": false
+    },
+    {
+      "id": "solar",
+      "entity_id": "sensor.stalman_total_energieopbrengst_levenslang",
+      "statistic_id": "sensor.stalman_total_energieopbrengst_levenslang",
+      "label": "Zonneproductie",
+      "unit": "kWh",
+      "kind": "total_increasing",
+      "share_with_ai": false,
+      "share_with_telegram": false
+    },
+    {
+      "id": "gas",
+      "entity_id": "sensor.gas_meter_gas",
+      "statistic_id": "sensor.gas_meter_gas",
+      "label": "Gasverbruik",
+      "unit": "m³",
+      "kind": "total_increasing",
+      "share_with_ai": false,
+      "share_with_telegram": false
+    }
+  ],
+  "ai": {
+    "enabled": true,
+    "model": "gpt-4.1-mini",
+    "max_input_tokens": 6000,
+    "max_output_tokens": 600,
+    "monthly_budget_usd": "0.50"
+  },
+  "telegram": {
+    "enabled": true
+  }
+}

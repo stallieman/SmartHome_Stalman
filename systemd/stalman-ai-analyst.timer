@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Home Assistant report after Recorder hourly statistics
+
+[Timer]
+OnCalendar=*-*-* 06:15:00 Europe/Amsterdam
+Persistent=true
+RandomizedDelaySec=120
+Unit=stalman-ai-analyst.service
+
+[Install]
+WantedBy=timers.target
