@@ -7,7 +7,10 @@ import io
 import json
 import os
 from pathlib import Path
+import sqlite3
 import stat
+import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -43,6 +46,7 @@ class DeploymentTests(unittest.TestCase):
                             "simulated_sensor": f"simulated_sensor.p1_meter_energie_{r}",
                             "tariff_type": "No tariff information"} for r in ("import", "export")]}}
         self.write(".storage/core.config_entries", json.dumps({"data": {"entries": [self.entry]}}).encode())
+        self.write("home-assistant_v2.db", b"synthetic recorder main database")
         self.backup = self.base / "backup.tar.gz"
         with tarfile.open(self.backup, "w:gz") as archive:
             archive.add(self.config, arcname="config")
@@ -376,7 +380,7 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual(evidence["snapshot"]["manifest_sha256"], d.manifest_digest(snapshot))
 
     def test_cache_exception_does_not_exclude_storage_databases_or_other_caches(self):
-        for relative in (".storage/new_runtime_state", "home-assistant_v2.db",
+        for relative in (".storage/new_runtime_state", "other-database.db",
                          ".cache/brands/hardware/example/icon.png", ".cache/other/value"):
             with self.subTest(relative=relative):
                 path = self.config / relative
@@ -388,6 +392,199 @@ class DeploymentTests(unittest.TestCase):
         cache_root.mkdir(parents=True)
         with self.assertRaisesRegex(d.Stop, "does not cover"):
             d.backup_check(self.backup, self.config)
+
+    def test_live_recorder_sidecars_are_allowed_and_preserved_in_stopped_snapshot(self):
+        self.write("home-assistant_v2.db-wal", b"committed recorder WAL frames")
+        self.write("home-assistant_v2.db-shm", b"rebuildable WAL index")
+        self.write("home-assistant.log.fault", b"")
+        (self.config / "home-assistant_v2.db").write_bytes(b"newer recorder main database")
+        before = self.tree()
+        with contextlib.redirect_stdout(io.StringIO()):
+            d.install(self.args)
+        self.assertEqual(self.tree(), before)
+        self.assertEqual(self.calls, [])
+        self.assertFalse(self.args.restore_root.exists())
+        original_snapshot = d.create_snapshot
+        stopped_manifest = {}
+
+        def stopped_snapshot(*args):
+            self.assertFalse(self.running)
+            stopped_manifest.update(d.filesystem_manifest(self.config))
+            return original_snapshot(*args)
+
+        with patch.object(d, "create_snapshot", side_effect=stopped_snapshot):
+            point = self.install()
+        snapshot = d.archive_manifest(point / "configuration.tar.gz")
+        self.assertEqual(snapshot, stopped_manifest)
+        for relative in ("home-assistant_v2.db", "home-assistant_v2.db-wal",
+                         "home-assistant_v2.db-shm", "home-assistant.log.fault"):
+            self.assertIn(relative, snapshot)
+            self.assertEqual(snapshot[relative]["sha256"], d.file_digest(self.config / relative))
+
+    def test_runtime_exception_is_exact_and_never_hides_faults_or_main_database_loss(self):
+        for relative, data in (("home-assistant_v2.db-journal", b"journal"),
+                               ("other.db-wal", b"wal"),
+                               ("runtime/home-assistant_v2.db-shm", b"shm"),
+                               ("home-assistant.log.fault", b"fatal Python error")):
+            with self.subTest(relative=relative):
+                path = self.config / relative
+                self.write(relative, data)
+                expected = "fault log" if relative == "home-assistant.log.fault" else "does not cover"
+                with self.assertRaisesRegex(d.Stop, expected):
+                    d.backup_check(self.backup, self.config)
+                path.unlink()
+                if path.parent != self.config:
+                    path.parent.rmdir()
+        shm = self.config / "home-assistant_v2.db-shm"
+        self.write("home-assistant_v2.db-shm", b"orphaned shm")
+        with self.assertRaisesRegex(d.Stop, "without its WAL"):
+            d.backup_check(self.backup, self.config)
+        shm.unlink()
+        database = self.config / "home-assistant_v2.db"
+        database_data = database.read_bytes()
+        database.unlink()
+        with self.assertRaisesRegex(d.Stop, "main database"):
+            d.backup_check(self.backup, self.config)
+        database.write_bytes(database_data)
+        self.write("home-assistant_v2.db-wal", b"backup must be self-contained")
+        with tarfile.open(self.backup, "w:gz") as archive:
+            archive.add(self.config, arcname="config")
+        with self.assertRaisesRegex(d.Stop, "Stopped backup unexpectedly contains"):
+            d.backup_check(self.backup, self.config)
+
+    def test_runtime_exception_requires_nonempty_main_database_in_both_manifests(self):
+        database = self.config / d.RECORDER_DATABASE
+        original = database.read_bytes()
+        for location in ("backup", "current"):
+            for data in (None, b""):
+                with self.subTest(location=location, data=data):
+                    database.write_bytes(original)
+                    if location == "current":
+                        with tarfile.open(self.backup, "w:gz") as archive:
+                            archive.add(self.config, arcname="config")
+                    if data is None:
+                        database.unlink()
+                    else:
+                        database.write_bytes(data)
+                    if location == "backup":
+                        with tarfile.open(self.backup, "w:gz") as archive:
+                            archive.add(self.config, arcname="config")
+                        database.write_bytes(original)
+                    with self.assertRaisesRegex(d.Stop, "main database"):
+                        d.backup_check(self.backup, self.config)
+
+    def test_runtime_paths_must_be_regular_files_and_absent_from_stopped_backup(self):
+        for name in sorted(d.CURRENT_RUNTIME_FILES):
+            for kind in ("directory", "symlink"):
+                with self.subTest(name=name, kind=kind):
+                    path = self.config / name
+                    if kind == "directory":
+                        path.mkdir()
+                    else:
+                        path.symlink_to(self.config / d.RECORDER_DATABASE)
+                    with self.assertRaises(d.Stop):
+                        d.backup_check(self.backup, self.config)
+                    path.rmdir() if kind == "directory" else path.unlink()
+        for name in sorted(d.RECORDER_SIDECARS):
+            with self.subTest(backup_sidecar=name):
+                self.write(name, b"sidecar")
+                with tarfile.open(self.backup, "w:gz") as archive:
+                    archive.add(self.config, arcname="config")
+                with self.assertRaisesRegex(d.Stop, "Stopped backup unexpectedly contains"):
+                    d.backup_check(self.backup, self.config)
+                (self.config / name).unlink()
+
+    def test_runtime_allowance_preserves_deployment_critical_content_checks(self):
+        self.write(d.RECORDER_DATABASE + "-wal", b"live WAL")
+        self.write(d.RECORDER_DATABASE + "-shm", b"live SHM")
+        for name in ("configuration.yaml", ".storage/core.config_entries", d.PREFIX + "const.py"):
+            with self.subTest(name=name):
+                path = self.config / name
+                original = path.read_bytes()
+                path.write_bytes(original + b"drift")
+                with self.assertRaisesRegex(d.Stop, "deployment-critical"):
+                    d.backup_check(self.backup, self.config)
+                path.write_bytes(original)
+
+    def test_stopped_snapshot_recovers_real_uncheckpointed_sqlite_commit(self):
+        database = self.config / d.RECORDER_DATABASE
+        database.unlink()
+        with contextlib.closing(sqlite3.connect(database)) as connection:
+            connection.execute("CREATE TABLE observations (value TEXT)")
+            connection.commit()
+        with tarfile.open(self.backup, "w:gz") as archive:
+            archive.add(self.config, arcname="config")
+        subprocess.run([sys.executable, "-c", """
+import os, sqlite3, sys
+connection = sqlite3.connect(sys.argv[1])
+assert connection.execute('PRAGMA journal_mode=WAL').fetchone()[0] == 'wal'
+connection.execute('INSERT INTO observations VALUES (?)', ('committed',))
+connection.commit()
+os._exit(0)  # Leave committed WAL frames, with no writer or close-time checkpoint.
+""", str(database)], check=True, timeout=30)
+        self.assertGreater((self.config / (d.RECORDER_DATABASE + "-wal")).stat().st_size, 0)
+        main_only = self.base / "main-only.db"
+        main_only.write_bytes(database.read_bytes())
+        with contextlib.closing(sqlite3.connect(main_only)) as connection:
+            self.assertEqual(connection.execute("SELECT * FROM observations").fetchall(), [])
+        point = self.install()
+        restored = self.base / "restored"
+        restored.mkdir()
+        with tarfile.open(point / "configuration.tar.gz") as archive:
+            for name in (d.RECORDER_DATABASE, *sorted(d.RECORDER_SIDECARS)):
+                with archive.extractfile("config/" + name) as stream:
+                    (restored / name).write_bytes(stream.read())
+        with contextlib.closing(sqlite3.connect(restored / d.RECORDER_DATABASE)) as connection:
+            self.assertEqual(connection.execute("SELECT * FROM observations").fetchall(), [("committed",)])
+            self.assertEqual(connection.execute("PRAGMA integrity_check").fetchone(), ("ok",))
+
+    def test_clean_shutdown_checkpoints_database_before_snapshot(self):
+        database = self.config / d.RECORDER_DATABASE
+        database.unlink()
+        connection = sqlite3.connect(database)
+        self.addCleanup(connection.close)
+        connection.execute("CREATE TABLE observations (value TEXT)")
+        connection.commit()
+        with tarfile.open(self.backup, "w:gz") as archive:
+            archive.add(self.config, arcname="config")
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("INSERT INTO observations VALUES ('checkpointed')")
+        connection.commit()
+        self.assertTrue((self.config / (d.RECORDER_DATABASE + "-wal")).exists())
+        original_docker = self.docker
+
+        def clean_stop(args, timeout=120):
+            result = original_docker(args, timeout)
+            if args[1] == "stop":
+                connection.close()
+            return result
+
+        with patch.object(d, "command", side_effect=clean_stop):
+            point = self.install()
+        snapshot = d.archive_manifest(point / "configuration.tar.gz")
+        self.assertTrue(d.RECORDER_SIDECARS.isdisjoint(snapshot))
+        self.assertEqual(snapshot[d.RECORDER_DATABASE]["sha256"], d.file_digest(database))
+        with contextlib.closing(sqlite3.connect(database)) as restored:
+            self.assertEqual(restored.execute("SELECT * FROM observations").fetchall(), [("checkpointed",)])
+
+    def test_snapshot_wal_mismatch_restarts_without_active_changes(self):
+        self.write(d.RECORDER_DATABASE + "-wal", b"committed WAL")
+        before = self.tree()
+        original_manifest = d.archive_manifest
+
+        def missing_wal(path):
+            manifest = original_manifest(path)
+            if path.name == "configuration.tar.gz":
+                self.assertFalse(self.running)
+                del manifest[d.RECORDER_DATABASE + "-wal"]
+            return manifest
+
+        with patch.object(d, "archive_manifest", side_effect=missing_wal):
+            with self.assertRaisesRegex(d.Stop, "Stopped configuration changed"):
+                self.install()
+        self.assertTrue(self.running)
+        self.assertEqual(self.tree(), before)
+        self.assertEqual(sum(call[1] == "start" for call in self.calls), 1)
 
     def test_health_failure_restores_files_and_restarts_container(self):
         self.args.apply = True

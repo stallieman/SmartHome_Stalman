@@ -36,6 +36,12 @@ CONFIG_FILE_MODE = 0o644
 # hass.config.cache_path("brands"). Core defines .cache as temporary,
 # regenerable data. This exception is only used for old-backup comparison.
 REBUILDABLE_BACKUP_CACHE = PurePosixPath(".cache/brands/integrations")
+RECORDER_DATABASE = "home-assistant_v2.db"
+RECORDER_SIDECARS = frozenset({RECORDER_DATABASE + "-wal", RECORDER_DATABASE + "-shm"})
+CURRENT_RUNTIME_FILES = frozenset({
+    "home-assistant.log.fault",
+    *RECORDER_SIDECARS,
+})
 
 
 class Stop(RuntimeError):
@@ -108,6 +114,19 @@ def backup_comparison_manifest(manifest):
         path = PurePosixPath(name)
         return REBUILDABLE_BACKUP_CACHE not in path.parents
     return {name: value for name, value in manifest.items() if retained(name)}
+
+
+def allowed_current_runtime_file(name, entry):
+    if name not in CURRENT_RUNTIME_FILES or entry["type"] != "file":
+        return False
+    # HA opens this file at startup and removes it after a clean exit when empty.
+    # Preserve and review actual fault output instead of classifying it as transient.
+    if name == "home-assistant.log.fault":
+        return entry["size"] == 0 and entry["sha256"] == digest(b"")
+    # SQLite WAL may hold committed data not yet in the main DB; SHM is a
+    # rebuildable index (sqlite.org/wal.html). Allow only extra live paths here,
+    # never delete/checkpoint them or filter the complete stopped snapshot.
+    return True
 
 
 def filesystem_manifest(root):
@@ -325,10 +344,27 @@ def backup_check(path, root):
         raise Stop("Confirmed backup could not be read; backup validation failed.") from exc
     archived_comparison = backup_comparison_manifest(archived)
     current_comparison = backup_comparison_manifest(current)
-    require(set(archived_comparison) == set(current_comparison),
+    archived_names = set(archived_comparison)
+    current_names = set(current_comparison)
+    for manifest in (archived, current):
+        database = manifest.get(RECORDER_DATABASE)
+        require(database is not None and database["type"] == "file" and database["size"] > 0
+                and bool(database["sha256"]), "Recorder main database is missing or invalid.")
+    fault_log = current.get("home-assistant.log.fault")
+    require(fault_log is None or allowed_current_runtime_file("home-assistant.log.fault", fault_log),
+            "Current Home Assistant fault log is not empty; review it before deployment.")
+    require(RECORDER_SIDECARS.isdisjoint(archived_names),
+            "Stopped backup unexpectedly contains Recorder WAL runtime sidecars.")
+    added_while_running = current_names - archived_names
+    require(not (archived_names - current_names)
+            and all(allowed_current_runtime_file(name, current_comparison[name])
+                    for name in added_while_running),
             "Backup manifest does not cover the complete current configuration.")
+    require(RECORDER_DATABASE + "-shm" not in added_while_running
+            or RECORDER_DATABASE + "-wal" in current_names,
+            "Recorder shared-memory sidecar exists without its WAL.")
     require(all(archived_comparison[name]["type"] == current_comparison[name]["type"]
-                for name in archived_comparison),
+                for name in archived_names & current_names),
             "Backup manifest contains different configuration entry types.")
     require(required <= set(archived), "Backup is missing required original configuration members.")
     require(all(archived[name] == current[name] for name in required),
