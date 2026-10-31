@@ -359,6 +359,36 @@ class DeploymentTests(unittest.TestCase):
         with self.assertRaisesRegex(d.Stop, "does not cover"):
             d.backup_check(self.backup, self.config)
 
+    def test_brand_integration_cache_differences_are_ignored_but_snapshot_keeps_them(self):
+        cached = self.config / ".cache/brands/integrations/example/icon.png"
+        self.write(".cache/brands/integrations/example/icon.png", b"old rebuildable image")
+        with tarfile.open(self.backup, "w:gz") as archive:
+            archive.add(self.config, arcname="config")
+        cached.write_bytes(b"new rebuildable image")
+        self.write(".cache/brands/integrations/new_brand/logo.png", b"new cache entry")
+        point = self.install()
+        snapshot = d.archive_manifest(point / "configuration.tar.gz")
+        self.assertEqual(snapshot[".cache/brands/integrations/example/icon.png"]["sha256"],
+                         d.digest(b"new rebuildable image"))
+        self.assertEqual(snapshot[".cache/brands/integrations/new_brand/logo.png"]["sha256"],
+                         d.digest(b"new cache entry"))
+        evidence = json.loads((point / "manifest.json").read_bytes())
+        self.assertEqual(evidence["snapshot"]["manifest_sha256"], d.manifest_digest(snapshot))
+
+    def test_cache_exception_does_not_exclude_storage_databases_or_other_caches(self):
+        for relative in (".storage/new_runtime_state", "home-assistant_v2.db",
+                         ".cache/brands/hardware/example/icon.png", ".cache/other/value"):
+            with self.subTest(relative=relative):
+                path = self.config / relative
+                self.write(relative, b"must remain covered")
+                with self.assertRaisesRegex(d.Stop, "does not cover"):
+                    d.backup_check(self.backup, self.config)
+                path.unlink()
+        cache_root = self.config / ".cache/brands/integrations"
+        cache_root.mkdir(parents=True)
+        with self.assertRaisesRegex(d.Stop, "does not cover"):
+            d.backup_check(self.backup, self.config)
+
     def test_health_failure_restores_files_and_restarts_container(self):
         self.args.apply = True
         self.args.authorize_runtime_check = True

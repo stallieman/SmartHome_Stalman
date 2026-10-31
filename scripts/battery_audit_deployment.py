@@ -32,6 +32,10 @@ PRIVATE_DIRECTORY_MODE = 0o700
 PRIVATE_FILE_MODE = 0o600
 CONFIG_DIRECTORY_MODE = 0o755
 CONFIG_FILE_MODE = 0o644
+# HA Core 2026.10.4 writes CDN-fetched integration images here via
+# hass.config.cache_path("brands"). Core defines .cache as temporary,
+# regenerable data. This exception is only used for old-backup comparison.
+REBUILDABLE_BACKUP_CACHE = PurePosixPath(".cache/brands/integrations")
 
 
 class Stop(RuntimeError):
@@ -97,6 +101,13 @@ def ensure_directory(path, info):
 
 def manifest_digest(manifest):
     return digest(json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode())
+
+
+def backup_comparison_manifest(manifest):
+    def retained(name):
+        path = PurePosixPath(name)
+        return REBUILDABLE_BACKUP_CACHE not in path.parents
+    return {name: value for name, value in manifest.items() if retained(name)}
 
 
 def filesystem_manifest(root):
@@ -312,8 +323,12 @@ def backup_check(path, root):
         raise Stop("Confirmed backup is unreadable; backup validation failed.") from exc
     except OSError as exc:
         raise Stop("Confirmed backup could not be read; backup validation failed.") from exc
-    require(set(archived) == set(current), "Backup manifest does not cover the complete current configuration.")
-    require(all(archived[name]["type"] == current[name]["type"] for name in archived),
+    archived_comparison = backup_comparison_manifest(archived)
+    current_comparison = backup_comparison_manifest(current)
+    require(set(archived_comparison) == set(current_comparison),
+            "Backup manifest does not cover the complete current configuration.")
+    require(all(archived_comparison[name]["type"] == current_comparison[name]["type"]
+                for name in archived_comparison),
             "Backup manifest contains different configuration entry types.")
     require(required <= set(archived), "Backup is missing required original configuration members.")
     require(all(archived[name] == current[name] for name in required),
