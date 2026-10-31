@@ -48,10 +48,14 @@ class DeploymentTests(unittest.TestCase):
             archive.add(self.config, arcname="config")
         self.args = argparse.Namespace(config=self.config, container="homeassistant", backup=self.backup,
                                        restore_root=self.base / "restore", restore_point=None,
-                                       apply=False, authorize_runtime_check=False, health_timeout=30)
+                                       apply=False, authorize_root=True,
+                                       authorize_runtime_check=False, health_timeout=30)
         self.running = True
         self.calls = []
+        self.real_require_root = d.require_root
         for mock in (patch.object(d, "SOURCE", hashes),
+                     patch.object(d, "RESTORE_ROOT", self.args.restore_root),
+                     patch.object(d, "require_root", return_value=None),
                      patch.object(d, "transform", side_effect=lambda data: data + b"\n# synthetic instrumentation\n"),
                      patch.object(d, "command", side_effect=self.docker)):
             mock.start()
@@ -113,47 +117,34 @@ class DeploymentTests(unittest.TestCase):
         self.assertFalse(self.args.restore_root.exists())
         self.assertEqual(self.calls, [])
 
-    def test_dry_run_ignores_unreadable_unmanaged_storage_without_reading_it(self):
+    def test_root_dry_run_hashes_complete_storage_without_writes(self):
         names = ("auth", "auth_provider.homeassistant", "core.uuid", "person", "onboarding",
                  "core.restore_state")
         protected = {self.config / ".storage" / name for name in names}
         for path in protected:
             self.write(str(path.relative_to(self.config)), b"synthetic protected data")
+        with tarfile.open(self.backup, "w:gz") as archive:
+            archive.add(self.config, arcname="config")
         expected = self.tree()
-        modes = {path: stat.S_IMODE(path.stat().st_mode) for path in protected}
-        for path in protected:
-            path.chmod(0)
-        before = {path: (path.stat().st_mode, path.stat().st_size, path.stat().st_mtime_ns)
-                  for path in protected}
-        original_access = os.access
-        original_read_bytes = Path.read_bytes
+        seen = set()
+        original_digest = d.file_digest
 
-        def access(path, mode):
-            return False if Path(path) in protected else original_access(path, mode)
+        def record(path):
+            seen.add(Path(path))
+            return original_digest(path)
 
-        def read_bytes(path):
-            if path in protected:
-                raise AssertionError("Dry-run attempted to read protected storage.")
-            return original_read_bytes(path)
-
-        try:
-            with patch.object(d.os, "access", side_effect=access), \
-                    patch.object(Path, "read_bytes", new=read_bytes), \
-                    contextlib.redirect_stdout(io.StringIO()):
-                d.install(self.args)
-            after = {path: (path.stat().st_mode, path.stat().st_size, path.stat().st_mtime_ns)
-                     for path in protected}
-            self.assertEqual(after, before)
-            self.assertFalse(self.args.restore_root.exists())
-            self.assertEqual(self.calls, [])
-        finally:
-            for path, mode in modes.items():
-                path.chmod(mode)
+        with patch.object(d, "file_digest", side_effect=record), contextlib.redirect_stdout(io.StringIO()):
+            d.install(self.args)
+        self.assertTrue(protected <= seen)
+        self.assertFalse(self.args.restore_root.exists())
+        self.assertEqual(self.calls, [])
         self.assertEqual(self.tree(), expected)
 
     def test_apply_still_requires_readable_files_for_full_snapshot(self):
         path = self.config / ".storage/auth"
         self.write(".storage/auth", b"synthetic protected data")
+        with tarfile.open(self.backup, "w:gz") as archive:
+            archive.add(self.config, arcname="config")
         mode = stat.S_IMODE(path.stat().st_mode)
         path.chmod(0)
         original_access = os.access
@@ -173,12 +164,25 @@ class DeploymentTests(unittest.TestCase):
 
     def test_runtime_checks_require_explicit_authorization(self):
         with self.assertRaises(d.Stop):
-            d.main(["runtime-check", "--config", str(self.config)])
+            d.main(["runtime-check", "--authorize-root", "--config", str(self.config)])
         self.assertEqual(self.calls, [])
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(d.main(["runtime-check", "--authorize-runtime-check",
+                                     "--authorize-root",
                                      "--config", str(self.config)]), 0)
         self.assertTrue(any(a[1] == "exec" for a in self.calls))
+
+    def test_root_execution_requires_both_effective_root_and_explicit_flag(self):
+        args = argparse.Namespace(authorize_root=False)
+        with patch.object(d.os, "geteuid", return_value=0):
+            with self.assertRaisesRegex(d.Stop, "--authorize-root"):
+                self.real_require_root(args)
+        args.authorize_root = True
+        with patch.object(d.os, "geteuid", return_value=1234):
+            with self.assertRaisesRegex(d.Stop, "explicitly as root"):
+                self.real_require_root(args)
+        with patch.object(d.os, "geteuid", return_value=0):
+            self.real_require_root(args)
 
     def test_apply_requires_runtime_authorization_before_side_effects(self):
         self.args.apply = True
@@ -191,6 +195,7 @@ class DeploymentTests(unittest.TestCase):
     def test_cli_defaults_to_dry_run_and_rollback_requires_explicit_point(self):
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(d.main(["install", "--config", str(self.config), "--backup", str(self.backup),
+                                     "--authorize-root",
                                      "--restore-root", str(self.args.restore_root)]), 0)
         self.assertEqual(self.tree(), self.originals)
         self.assertFalse(self.args.restore_root.exists())
@@ -217,6 +222,30 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual((self.config / "energy_finance/intervals.sqlite").read_bytes(), b"preserve new runtime evidence")
         self.assertFalse((self.config / (d.PREFIX + "stalman_audit.py")).exists())
         self.assertEqual(json.loads((point / "manifest.json").read_bytes())["phase"], "rolled_back")
+
+    def test_new_and_replaced_files_have_explicit_metadata(self):
+        existing = self.config / "configuration.yaml"
+        existing.chmod(0o640)
+        expected_owner = (existing.stat().st_uid, existing.stat().st_gid)
+        with tarfile.open(self.backup, "w:gz") as archive:
+            archive.add(self.config, arcname="config")
+        point = self.install()
+        self.assertEqual(stat.S_IMODE(existing.stat().st_mode), 0o640)
+        self.assertEqual((existing.stat().st_uid, existing.stat().st_gid), expected_owner)
+        for relative in ("energy_finance/collector.py", "packages/energie_audit_adapter.yaml",
+                         d.PREFIX + "stalman_audit.py"):
+            info = (self.config / relative).stat()
+            self.assertEqual((info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)),
+                             (*expected_owner, d.CONFIG_FILE_MODE))
+        finance = (self.config / "energy_finance").stat()
+        self.assertEqual((finance.st_uid, finance.st_gid, stat.S_IMODE(finance.st_mode)),
+                         (*expected_owner, d.CONFIG_DIRECTORY_MODE))
+        for path in [point, *point.rglob("*")]:
+            expected = d.PRIVATE_DIRECTORY_MODE if path.is_dir() else d.PRIVATE_FILE_MODE
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), expected)
+            self.assertEqual((path.stat().st_uid, path.stat().st_gid), (os.geteuid(), os.getegid()))
+        lock = self.args.restore_root / ".deployment.lock"
+        self.assertEqual(stat.S_IMODE(lock.stat().st_mode), d.PRIVATE_FILE_MODE)
 
     def test_config_failure_never_stops_or_changes_active_files(self):
         original = self.docker
@@ -246,6 +275,18 @@ class DeploymentTests(unittest.TestCase):
         self.assertTrue(self.running)
         self.assertEqual(self.tree(), self.originals)
         self.assertEqual(sum(call[1] == "start" for call in self.calls), 0)
+
+    def test_snapshot_failure_restarts_home_assistant_without_active_changes(self):
+        self.args.apply = True
+        self.args.authorize_runtime_check = True
+        with patch.object(d, "create_snapshot", side_effect=OSError("synthetic snapshot failure")), \
+                contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(OSError):
+                d.install(self.args)
+        self.assertTrue(self.running)
+        self.assertEqual(self.tree(), self.originals)
+        self.assertEqual(sum(call[1] == "stop" for call in self.calls), 1)
+        self.assertEqual(sum(call[1] == "start" for call in self.calls), 1)
 
     def test_drift_blocks_rollback_before_stop(self):
         self.install()
@@ -301,6 +342,23 @@ class DeploymentTests(unittest.TestCase):
                 d.backup_check(self.backup, self.config)
         self.assertNotIn("private path details", str(caught.exception))
 
+    def test_backup_manifest_detects_missing_and_changed_files_without_disclosure(self):
+        secret = self.config / ".storage" / "auth"
+        self.write(".storage/auth", b"private-one")
+        backed_up_config = self.original_config + b"# private-one\n"
+        (self.config / "configuration.yaml").write_bytes(backed_up_config)
+        with tarfile.open(self.backup, "w:gz") as archive:
+            archive.add(self.config, arcname="config")
+        (self.config / "configuration.yaml").write_bytes(backed_up_config.replace(b"private-one", b"private-two"))
+        with self.assertRaisesRegex(d.Stop, "deployment-critical") as caught:
+            d.backup_check(self.backup, self.config)
+        self.assertNotIn("private-one", str(caught.exception))
+        self.assertNotIn("private-two", str(caught.exception))
+        (self.config / "configuration.yaml").write_bytes(backed_up_config)
+        secret.unlink()
+        with self.assertRaisesRegex(d.Stop, "does not cover"):
+            d.backup_check(self.backup, self.config)
+
     def test_health_failure_restores_files_and_restarts_container(self):
         self.args.apply = True
         self.args.authorize_runtime_check = True
@@ -319,12 +377,12 @@ class DeploymentTests(unittest.TestCase):
         self.args.authorize_runtime_check = True
         original = d.atomic
         failed = False
-        def failure(path, data, info=None):
+        def failure(path, data, info, directory_info=None):
             nonlocal failed
             if path == self.config / "energy_finance/compare.py" and not failed:
                 failed = True
                 raise OSError("synthetic disk failure")
-            return original(path, data, info)
+            return original(path, data, info, directory_info)
         with patch.object(d, "atomic", side_effect=failure), contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaises(OSError):
                 d.install(self.args)
@@ -336,12 +394,12 @@ class DeploymentTests(unittest.TestCase):
         installed = self.tree()
         original = d.atomic
         failed = False
-        def failure(path, data, info=None):
+        def failure(path, data, info, directory_info=None):
             nonlocal failed
             if path == self.config / "configuration.yaml" and not failed:
                 failed = True
                 raise OSError("synthetic rollback disk failure")
-            return original(path, data, info)
+            return original(path, data, info, directory_info)
         with patch.object(d, "atomic", side_effect=failure), contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaises(OSError):
                 d.rollback(self.args)

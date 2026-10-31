@@ -27,6 +27,11 @@ SOURCE = {
 ENTRY = "01M678WZZ6M086SEWQ1QENFZ8Z"
 PREFIX = "custom_components/battery_sim/"
 CORE_FILES = ("collector.py", "batch_contract.py", "compare.py", "collector.json", "tariffs.json")
+RESTORE_ROOT = Path("/root/.local/state/stalman-audit")
+PRIVATE_DIRECTORY_MODE = 0o700
+PRIVATE_FILE_MODE = 0o600
+CONFIG_DIRECTORY_MODE = 0o755
+CONFIG_FILE_MODE = 0o644
 
 
 class Stop(RuntimeError):
@@ -49,6 +54,110 @@ def file_digest(path):
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             value.update(chunk)
     return value.hexdigest()
+
+
+def stream_digest(stream):
+    value = hashlib.sha256()
+    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+        value.update(chunk)
+    return value.hexdigest()
+
+
+def require_root(args):
+    require(args.authorize_root, "Root execution requires --authorize-root; the script never invokes sudo itself.")
+    require(os.geteuid() == 0, "Run this operation explicitly as root, for example via sudo.")
+
+
+def identity(mode, uid=None, gid=None):
+    return {"uid": os.geteuid() if uid is None else uid,
+            "gid": os.getegid() if gid is None else gid, "mode": mode}
+
+
+def require_metadata(path, expected, label):
+    info = path.stat()
+    require(info.st_uid == expected["uid"] and info.st_gid == expected["gid"]
+            and stat.S_IMODE(info.st_mode) == expected["mode"], label)
+
+
+def ensure_directory(path, info):
+    missing = []
+    current = path
+    while not current.exists():
+        require(not current.is_symlink(), "Destination directory must not be a symlink.")
+        missing.append(current)
+        current = current.parent
+    require(current.is_dir() and not current.is_symlink(), "Destination parent must be a real directory.")
+    for directory in reversed(missing):
+        directory.mkdir(mode=info["mode"])
+        os.chown(directory, info["uid"], info["gid"])
+        os.chmod(directory, info["mode"])
+    require(path.is_dir() and not path.is_symlink(), "Destination directory must be a real directory.")
+    require_metadata(path, info, "Destination directory metadata differs from the approved policy.")
+
+
+def manifest_digest(manifest):
+    return digest(json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode())
+
+
+def filesystem_manifest(root):
+    require(root.is_dir() and not root.is_symlink(), "Configuration root must be a real directory.")
+    result = {".": {"type": "directory", "size": 0, "sha256": None}}
+
+    def denied(error):
+        raise Stop("Cannot read the complete configuration for backup comparison.") from error
+
+    for parent, directories, files in os.walk(root, followlinks=False, onerror=denied):
+        for name in directories:
+            path = Path(parent) / name
+            require(path.is_dir() and not path.is_symlink(), "Unsupported entry in configuration tree.")
+            relative = path.relative_to(root).as_posix()
+            result[relative] = {"type": "directory", "size": 0, "sha256": None}
+        for name in files:
+            path = Path(parent) / name
+            require(path.is_file() and not path.is_symlink(), "Unsupported entry in configuration tree.")
+            info = path.stat()
+            result[path.relative_to(root).as_posix()] = {
+                "type": "file", "size": info.st_size, "sha256": file_digest(path)}
+    return result
+
+
+def archive_manifest(path):
+    members = []
+    try:
+        with tarfile.open(path, "r:gz") as archive:
+            for member in archive:
+                name = PurePosixPath(member.name.removeprefix("./"))
+                require(member.name and not name.is_absolute() and ".." not in name.parts
+                        and not member.issym() and not member.islnk(),
+                        "Backup contains unsafe member paths or links.")
+                require(member.isfile() or member.isdir(), "Backup contains unsupported entry types.")
+                members.append((name, member, archive.extractfile(member) if member.isfile() else None))
+                if member.isfile():
+                    require(members[-1][2] is not None, "Backup member cannot be read.")
+                    members[-1] = (name, member, stream_digest(members[-1][2]))
+        roots = {name.parent for name, member, value in members
+                 if member.isfile() and name.name == "configuration.yaml" and name.parent.name == "config"}
+        require(len(roots) == 1, "Backup must contain exactly one complete config root.")
+        root = roots.pop()
+        result = {}
+        for name, member, value in members:
+            if name == root:
+                relative = "."
+            elif root in name.parents:
+                relative = name.relative_to(root).as_posix()
+            else:
+                require(member.isdir() and (name in root.parents), "Backup contains files outside the config root.")
+                continue
+            require(relative not in result, "Backup contains duplicate configuration paths.")
+            result[relative] = {"type": "file" if member.isfile() else "directory",
+                                "size": member.size if member.isfile() else 0,
+                                "sha256": value if member.isfile() else None}
+        require(result.get(".", {}).get("type") == "directory", "Backup config root is incomplete.")
+        return result
+    except PermissionError as exc:
+        raise Stop("Confirmed backup is unreadable; backup validation failed.") from exc
+    except (OSError, tarfile.TarError) as exc:
+        raise Stop("Confirmed backup could not be read; backup validation failed.") from exc
 
 
 def command(args, timeout=120):
@@ -195,27 +304,23 @@ def backup_check(path, root):
     require(path.is_file() and not path.is_symlink(), "Confirmed backup is missing.")
     required = {"configuration.yaml", ".storage/core.config_entries", "packages/energie_thuisbatterij.yaml",
                 *[PREFIX + name for name in SOURCE]}
-    found = set()
     try:
-        with tarfile.open(path, "r:gz") as archive:
-            for member in archive:
-                name = PurePosixPath(member.name)
-                require(not name.is_absolute() and ".." not in name.parts and not member.issym() and not member.islnk(),
-                        "Backup contains unsafe member paths or links.")
-                clean = str(name).removeprefix("./")
-                for relative in required:
-                    if clean == relative or clean.endswith("/config/" + relative) or clean == "config/" + relative:
-                        require(relative not in found and member.isfile(), "Ambiguous backup member.")
-                        found.add(relative)
-                        if relative.startswith(PREFIX):
-                            require(digest(archive.extractfile(member).read()) == SOURCE[Path(relative).name],
-                                    "Backup source differs from approved original.")
+        archive_hash = file_digest(path)
+        archived = archive_manifest(path)
+        current = filesystem_manifest(root)
     except PermissionError as exc:
         raise Stop("Confirmed backup is unreadable; backup validation failed.") from exc
     except OSError as exc:
         raise Stop("Confirmed backup could not be read; backup validation failed.") from exc
-    require(found == required, "Backup is missing required original configuration members.")
-    return file_digest(path)
+    require(set(archived) == set(current), "Backup manifest does not cover the complete current configuration.")
+    require(all(archived[name]["type"] == current[name]["type"] for name in archived),
+            "Backup manifest contains different configuration entry types.")
+    require(required <= set(archived), "Backup is missing required original configuration members.")
+    require(all(archived[name] == current[name] for name in required),
+            "Backup differs from current deployment-critical configuration; create a current backup.")
+    require(all(archived[PREFIX + name]["sha256"] == expected for name, expected in SOURCE.items()),
+            "Backup source differs from approved original.")
+    return {"sha256": archive_hash, "manifest_sha256": manifest_digest(archived), "entries": len(archived)}
 
 
 def transform(source):
@@ -300,17 +405,19 @@ def metadata(path):
     return {"sha256": digest(data), "mode": stat.S_IMODE(info.st_mode), "uid": info.st_uid, "gid": info.st_gid}
 
 
-def atomic(path, data, info=None):
-    path.parent.mkdir(parents=True, exist_ok=True)
+def atomic(path, data, info, directory_info=None):
+    require(info is not None, "Destination file metadata policy is required.")
+    if not path.parent.exists():
+        require(directory_info is not None, "Destination directory metadata policy is required.")
+        ensure_directory(path.parent, directory_info)
     fd, temporary = tempfile.mkstemp(prefix=".audit-", dir=path.parent)
     try:
         with os.fdopen(fd, "wb") as stream:
+            os.fchown(stream.fileno(), info["uid"], info["gid"])
+            os.fchmod(stream.fileno(), info["mode"])
             stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())
-            if info:
-                os.fchown(stream.fileno(), info["uid"], info["gid"])
-                os.fchmod(stream.fileno(), info["mode"])
         os.replace(temporary, path)
         parent_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
         try:
@@ -320,6 +427,57 @@ def atomic(path, data, info=None):
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
+
+
+def open_lock(path, file_info, directory_info):
+    if not path.parent.exists():
+        ensure_directory(path.parent, directory_info)
+    if path.exists() or path.is_symlink():
+        require(path.is_file() and not path.is_symlink(), "Deployment lock must be a regular file.")
+    descriptor = os.open(path, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0),
+                         file_info["mode"])
+    os.fchown(descriptor, file_info["uid"], file_info["gid"])
+    os.fchmod(descriptor, file_info["mode"])
+    require_metadata(path, file_info, "Deployment lock metadata differs from the approved policy.")
+    return os.fdopen(descriptor, "a+")
+
+
+def create_snapshot(config, destination, private_file, private_directory):
+    ensure_directory(destination.parent, private_directory)
+    descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC,
+                         private_file["mode"])
+    try:
+        os.fchown(descriptor, private_file["uid"], private_file["gid"])
+        os.fchmod(descriptor, private_file["mode"])
+        with os.fdopen(descriptor, "wb") as stream:
+            descriptor = -1
+            with tarfile.open(fileobj=stream, mode="w:gz") as archive:
+                archive.add(config, arcname="config")
+            stream.flush()
+            os.fsync(stream.fileno())
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    require_metadata(destination, private_file, "Restore snapshot metadata differs from the approved policy.")
+    snapshot_manifest = archive_manifest(destination)
+    current_manifest = filesystem_manifest(config)
+    require(snapshot_manifest == current_manifest,
+            "Stopped configuration changed while creating the restore snapshot.")
+    return {"sha256": file_digest(destination),
+            "manifest_sha256": manifest_digest(snapshot_manifest), "entries": len(snapshot_manifest)}
+
+
+def validate_private_tree(root, file_info, directory_info):
+    require_metadata(root, directory_info, "Restore point must be private and owned by root.")
+    for parent, directories, files in os.walk(root, followlinks=False):
+        for name in directories:
+            path = Path(parent) / name
+            require(path.is_dir() and not path.is_symlink(), "Unsafe restore-point directory.")
+            require_metadata(path, directory_info, "Restore-point directory metadata is unsafe.")
+        for name in files:
+            path = Path(parent) / name
+            require(path.is_file() and not path.is_symlink(), "Unsafe restore-point file.")
+            require_metadata(path, file_info, "Restore-point file metadata is unsafe.")
 
 
 def check_config(stage):
@@ -397,7 +555,7 @@ def capture_files(root, names):
     return snapshot
 
 
-def restore_files(root, snapshot, allowed_hashes):
+def restore_files(root, snapshot, allowed_hashes, directory_info):
     for name, state in snapshot.items():
         current = metadata(root / name)
         current_hash = current["sha256"] if current else None
@@ -409,7 +567,7 @@ def restore_files(root, snapshot, allowed_hashes):
                 require(path.is_file() and not path.is_symlink(), "Refusing to remove a non-regular recovery target.")
                 path.unlink()
         else:
-            atomic(path, state["data"], state["info"])
+            atomic(path, state["data"], state["info"], directory_info)
 
 
 def allow_hashes(*snapshots):
@@ -427,7 +585,7 @@ def ensure_running(args, desired):
     container(args, running=desired)
 
 
-def recover_transaction(args, was_running, snapshot, allowed, restore_changes):
+def recover_transaction(args, was_running, snapshot, allowed, restore_changes, directory_info):
     if not restore_changes:
         if was_running:
             ensure_running(args, True)
@@ -438,7 +596,7 @@ def recover_transaction(args, was_running, snapshot, allowed, restore_changes):
             command(["docker", "stop", "--time", "-1", args.container], timeout=180)
             container(args, running=False)
         if restore_changes:
-            restore_files(args.config, snapshot, allowed)
+            restore_files(args.config, snapshot, allowed, directory_info)
     except BaseException as recovery_error:
         try:
             if was_running:
@@ -451,10 +609,12 @@ def recover_transaction(args, was_running, snapshot, allowed, restore_changes):
 
 
 def install(args):
+    require_root(args)
+    require(args.restore_root == RESTORE_ROOT, "Use the fixed private restore root /root/.local/state/stalman-audit.")
     preflight(args, require_readable=args.apply)
     for name, expected in SOURCE.items():
         require(digest(regular(args.config / PREFIX / name)) == expected, "Installed source hash mismatch.")
-    backup_hash = backup_check(args.backup, args.config)
+    backup_evidence = backup_check(args.backup, args.config)
     original_inputs = {n: metadata(args.config / n) for n in
                        ("configuration.yaml", "packages/energie_thuisbatterij.yaml", PREFIX + "__init__.py")}
     files = candidate(args)
@@ -463,12 +623,18 @@ def install(args):
     require(args.restore_root.is_absolute() and args.restore_root.resolve() == args.restore_root
             and not args.restore_root.is_relative_to(args.config) and not args.restore_root.is_relative_to(ROOT),
             "Restore root must be a real path outside /config and the source repository.")
+    owner = metadata(args.config / "configuration.yaml")
+    config_file = identity(CONFIG_FILE_MODE, owner["uid"], owner["gid"])
+    config_directory = identity(CONFIG_DIRECTORY_MODE, owner["uid"], owner["gid"])
+    private_file = identity(PRIVATE_FILE_MODE)
+    private_directory = identity(PRIVATE_DIRECTORY_MODE)
     writable(args.restore_root / ".probe")
     if args.restore_root.exists():
-        require(stat.S_IMODE(args.restore_root.stat().st_mode) == 0o700
-                and args.restore_root.stat().st_uid == os.geteuid(), "Restore root must be private and owned by caller.")
+        require_metadata(args.restore_root, private_directory,
+                         "Restore root must be private and owned by root.")
     preflight(args, files, require_readable=args.apply)
     before = {name: metadata(args.config / name) for name in files}
+    planned = {name: state if state is not None else config_file for name, state in before.items()}
     if not args.apply:
         print(f"DRY-RUN: preflight passed; {len(files)} files planned. No writes, stop, validation container or restart.")
         return
@@ -477,14 +643,15 @@ def install(args):
         verify_writable(args.config / relative)
     verify_writable(args.restore_root / ".probe")
     runtime_check(args, require_running=True)
-    args.restore_root.mkdir(parents=True, exist_ok=True, mode=0o700)
-    require(stat.S_IMODE(args.restore_root.stat().st_mode) == 0o700
-            and args.restore_root.stat().st_uid == os.geteuid(), "Restore root must be private and owned by caller.")
-    with (args.restore_root / ".deployment.lock").open("a") as lock:
+    ensure_directory(args.restore_root, private_directory)
+    with open_lock(args.restore_root / ".deployment.lock", private_file, private_directory) as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         preflight(args, files)
         require(all(metadata(args.config / n) == v for n, v in before.items()), "Configuration changed during preflight.")
         point = Path(tempfile.mkdtemp(prefix=datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-"), dir=args.restore_root))
+        os.chown(point, private_directory["uid"], private_directory["gid"])
+        os.chmod(point, private_directory["mode"])
+        require_metadata(point, private_directory, "Restore point metadata differs from the approved policy.")
         print("Private restore point:", point)
         original_files = capture_files(args.config, files)
         after_hashes = {name: {digest(data)} for name, data in files.items()}
@@ -494,8 +661,9 @@ def install(args):
         stage = point / "stage"
         shutil.copytree(args.config, stage)
         for name, data in files.items():
-            atomic(stage / name, data)
+            atomic(stage / name, data, planned[name], config_directory)
         check_config(stage)
+        shutil.rmtree(stage)
         changed = False
         was_running = True
         manifest = None
@@ -508,61 +676,72 @@ def install(args):
             require(all(metadata(args.config / n) == v for n, v in before.items()),
                     "Deployment files changed at shutdown.")
             snapshot = point / "configuration.tar.gz"
-            with snapshot.open("xb") as stream:
-                os.fchmod(stream.fileno(), 0o600)
-                with tarfile.open(fileobj=stream, mode="w:gz") as archive:
-                    archive.add(args.config, arcname="config")
+            snapshot_evidence = create_snapshot(args.config, snapshot, private_file, private_directory)
             for name, state in original_files.items():
                 if state:
-                    atomic(point / "originals" / name, state["data"])
+                    atomic(point / "originals" / name, state["data"], private_file, private_directory)
             manifest = {"config": str(args.config), "image": IMAGE, "container": args.container,
-                        "battery": args.battery_fingerprint, "backup_sha256": backup_hash,
-                        "snapshot_sha256": file_digest(snapshot), "before": before,
+                        "battery": args.battery_fingerprint, "backup": backup_evidence,
+                        "snapshot": snapshot_evidence, "before": before,
                         "after": {n: digest(data) for n, data in files.items()}, "phase": "prepared"}
-            atomic(point / "manifest.json", json.dumps(manifest, indent=2).encode())
+            atomic(point / "manifest.json", json.dumps(manifest, indent=2).encode(),
+                   private_file, private_directory)
             changed = True
             for name, data in files.items():
-                atomic(args.config / name, data, before[name])
+                atomic(args.config / name, data, planned[name], config_directory)
             manifest["phase"] = "installed"
-            atomic(point / "manifest.json", json.dumps(manifest, indent=2).encode())
+            atomic(point / "manifest.json", json.dumps(manifest, indent=2).encode(),
+                   private_file, private_directory)
             command(["docker", "start", args.container])
             wait_core(args)
             health(args)
             manifest["phase"] = "validated"
-            atomic(point / "manifest.json", json.dumps(manifest, indent=2).encode())
+            atomic(point / "manifest.json", json.dumps(manifest, indent=2).encode(),
+                   private_file, private_directory)
             print("PASS: audit-only installed and observed; monetary activation remains disabled.")
         except BaseException as original_error:
             try:
-                recover_transaction(args, was_running, original_files, recovery_hashes, changed)
+                recover_transaction(args, was_running, original_files, recovery_hashes, changed, config_directory)
             except BaseException as recovery_error:
                 raise Stop("Installation failed and automatic recovery was incomplete; inspect the saved restore point and container.") from recovery_error
             if manifest is not None:
                 manifest["phase"] = "recovered"
                 try:
-                    atomic(point / "manifest.json", json.dumps(manifest, indent=2).encode())
+                    atomic(point / "manifest.json", json.dumps(manifest, indent=2).encode(),
+                           private_file, private_directory)
                 except BaseException as manifest_error:
                     raise Stop("Files and container were recovered, but restore-point metadata needs review.") from manifest_error
             raise original_error
 
 
 def rollback(args):
+    require_root(args)
+    require(args.restore_root == RESTORE_ROOT, "Use the fixed private restore root /root/.local/state/stalman-audit.")
     point = args.restore_point
+    private_file = identity(PRIVATE_FILE_MODE)
+    private_directory = identity(PRIVATE_DIRECTORY_MODE)
     require(point.is_absolute() and point.resolve() == point and point.is_dir() and not point.is_symlink()
             and point.stat().st_uid == os.geteuid() and stat.S_IMODE(point.stat().st_mode) == 0o700
             and point.parent.stat().st_uid == os.geteuid() and stat.S_IMODE(point.parent.stat().st_mode) == 0o700,
-            "Restore point and its deployment root must be private and owned by caller.")
+            "Restore point and its deployment root must be private and owned by root.")
+    validate_private_tree(point, private_file, private_directory)
     manifest = json.loads(regular(point / "manifest.json"))
     require(manifest["config"] == str(args.config) and manifest["image"] == IMAGE
             and manifest["container"] == args.container and manifest["phase"] in ("prepared", "installed", "validated"),
             "Restore point is not applicable.")
     preflight(args)
     require(args.battery_fingerprint == manifest["battery"], "Battery configuration changed; manual review required.")
-    require(file_digest(point / "configuration.tar.gz") == manifest["snapshot_sha256"], "Restore snapshot is damaged.")
+    snapshot_manifest = archive_manifest(point / "configuration.tar.gz")
+    require(file_digest(point / "configuration.tar.gz") == manifest["snapshot"]["sha256"]
+            and manifest_digest(snapshot_manifest) == manifest["snapshot"]["manifest_sha256"]
+            and len(snapshot_manifest) == manifest["snapshot"]["entries"], "Restore snapshot is damaged.")
     allowed = {"configuration.yaml", "packages/energie_thuisbatterij.yaml",
                "packages/energie_audit_adapter.yaml", "packages/energie_intervalcollector.yaml",
                PREFIX + "__init__.py", PREFIX + "stalman_audit.py",
                *["energy_finance/" + n for n in CORE_FILES]}
     require(set(manifest["before"]) == set(manifest["after"]) == allowed, "Unexpected managed restore files.")
+    owner = metadata(args.config / "configuration.yaml")
+    config_directory = identity(CONFIG_DIRECTORY_MODE, owner["uid"], owner["gid"])
     files = {}
     for name, info in manifest["before"].items():
         require(not PurePosixPath(name).is_absolute() and ".." not in PurePosixPath(name).parts,
@@ -592,7 +771,7 @@ def rollback(args):
     }
     recovery_hashes = allow_hashes(observed_files, rollback_files)
     original_phase = manifest["phase"]
-    with (point.parent / ".deployment.lock").open("a") as lock:
+    with open_lock(point.parent / ".deployment.lock", private_file, private_directory) as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         changed = False
         try:
@@ -601,7 +780,7 @@ def rollback(args):
                 shutil.copytree(args.config, stage)
                 for name, info in manifest["before"].items():
                     if info:
-                        atomic(stage / name, files[name])
+                        atomic(stage / name, files[name], info, config_directory)
                     elif (stage / name).exists():
                         (stage / name).unlink()
                 check_config(stage)
@@ -613,7 +792,7 @@ def rollback(args):
                 container(args, running=False)
             require(battery(args.config) == manifest["battery"], "Battery configuration changed at rollback shutdown.")
             changed = True
-            restore_files(args.config, rollback_files, recovery_hashes)
+            restore_files(args.config, rollback_files, recovery_hashes, config_directory)
             if running:
                 command(["docker", "start", args.container])
                 wait_core(args)
@@ -621,17 +800,19 @@ def rollback(args):
                 require(battery(args.config) == manifest["battery"],
                         "Battery binding/settings differ after rollback.")
             manifest["phase"] = "rolled_back"
-            atomic(point / "manifest.json", json.dumps(manifest, indent=2).encode())
+            atomic(point / "manifest.json", json.dumps(manifest, indent=2).encode(),
+                   private_file, private_directory)
             print("PASS: original managed files restored; runtime databases and .storage were not overwritten.")
         except BaseException as original_error:
             try:
-                recover_transaction(args, running, observed_files, recovery_hashes, changed)
+                recover_transaction(args, running, observed_files, recovery_hashes, changed, config_directory)
             except BaseException as recovery_error:
                 raise Stop("Rollback failed and automatic recovery was incomplete; inspect the saved restore point and container.") from recovery_error
             if manifest["phase"] != original_phase:
                 manifest["phase"] = original_phase
                 try:
-                    atomic(point / "manifest.json", json.dumps(manifest, indent=2).encode())
+                    atomic(point / "manifest.json", json.dumps(manifest, indent=2).encode(),
+                           private_file, private_directory)
                 except BaseException as manifest_error:
                     raise Stop("Rollback state was recovered, but restore-point metadata needs review.") from manifest_error
             raise original_error
@@ -641,18 +822,21 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("install", "rollback", "runtime-check"))
     parser.add_argument("--apply", action="store_true", help="Explicitly allow writes and the controlled container stop/start")
+    parser.add_argument("--authorize-root", action="store_true",
+                        help="Acknowledge explicit root execution; this script never invokes sudo")
     parser.add_argument("--authorize-runtime-check", action="store_true",
                         help="Explicitly authorize read-only Docker inspection and runtime checks")
     parser.add_argument("--config", type=Path, default=Path("/home/stallieman/SmartHome_Stalman/config"))
     parser.add_argument("--container", default="homeassistant")
     parser.add_argument("--backup", type=Path, default=Path("/home/stallieman/homeassistant-backup-20261031.tar.gz"))
-    parser.add_argument("--restore-root", type=Path, default=Path.home() / ".local/state/stalman-audit")
+    parser.add_argument("--restore-root", type=Path, default=RESTORE_ROOT)
     parser.add_argument("--restore-point", type=Path)
     parser.add_argument("--health-timeout", type=int, default=180)
     args = parser.parse_args(argv)
     require(args.config.is_absolute() and args.config.resolve() == args.config, "Use the real absolute configuration path.")
     require(30 <= args.health_timeout <= 600, "Health timeout must be 30..600 seconds.")
     if args.action == "runtime-check":
+        require_root(args)
         require(args.authorize_runtime_check, "Runtime checks require --authorize-runtime-check.")
         running = runtime_check(args, require_running=None)
         print(f"PASS: runtime identity verified; container running={running}.")
