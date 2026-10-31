@@ -63,6 +63,12 @@ De echte YAML-/shellketen schrijft snapshots en auditbatches naar SQLite en atom
 
 De proef slaagt. Productie-installatie, productie-back-up, HTTP/frontend en hardware zijn niet getest. De bestaande suites zijn ongewijzigd en daarom niet opnieuw gedraaid. Zie [installatieplan](INSTALLATION_PLAN.md).
 
+## Installatie-/rollbackscripts · 2026-10-31
+
+16 gerichte synthetische deploymenttests slagen. De twee Bash-entrypoints zijn standaard dry-run; Bash-syntax en `--help` zijn gecontroleerd. Tests gebruiken tijdelijke configuratie-/backupbestanden en volledig gemockte Docker-commando's. Getest zijn apply en expliciete rollback, behoud van niet-beheerde bestanden en batterijconfiguratie, uitschakeling van geldvrijgave, verkeerde bron/image/mount/rechten/ruimte/batterijconfiguratie, ontbrekende/onveilige back-ups, drift, configvalidatiefout vóór stop, gedeeltelijke schrijffout, mislukte healthcheck, gestopte container en beschadigd herstelpunt. Dry-run maakt geen bestanden of herstelpunt aan en doet geen stop/start of validatierun.
+
+Deze tests bewijzen de fail-closed orchestratielogica, niet de werking van echte Docker-lifecyclecommando's op productie. De bestaande HA-proef uit `dd502c5` blijft apart bewijs; volledige suites en productiehandelingen zijn niet herhaald. Zie [installatieplan §8](INSTALLATION_PLAN.md#8-installatie--en-rollbackscripts--uitsluitend-lokaal-ontwikkeld).
+
 ## Essent-contractscenario's · 2026-10-31
 
 34 financiële unittests slagen. De brutotarieven € 0,31274/€ 0,30911 tellen op uit de opgegeven levering en energiebelasting. Onder de te bevestigen inclusief-btw-basis wordt 21% btw alleen intern verwijderd en eenmaal na de 10%-korting op levering toegepast; de resultaten zijn exact € 0,292551 normaal en € 0,289284 dal. Tests bewijzen dat dubbel toepassen van btw of korting niet gebeurt.

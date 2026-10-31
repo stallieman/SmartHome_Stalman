@@ -1,12 +1,12 @@
 # Installatieplan — Battery Simulator-audit en financiële vergelijking
 
-**Datum:** 31 oktober 2026. **Status: NO-GO voor productieactivatie.**
+**Datum:** 31 oktober 2026. **Status: geen productiehandeling zonder nieuwe toestemming.** Financiële activatie blijft NO-GO; audit-only-scripts zijn uitsluitend lokaal getest, zie §8.
 
 Dit plan is aanvankelijk als enige bestand toegevoegd. De vervolgens afzonderlijk toegestane lokale fase-A-proef is op 31 oktober uitgevoerd; zie §2. Er is niets op de actieve server geïnstalleerd of herstart en niets gepusht. Alle hieronder beschreven server-schrijfacties en serverherstarts zijn **toekomstige stappen**, waarvoor afzonderlijke toestemming nodig is. Bij ontbrekende rechten stoppen en de beheerder inschakelen; geen sudo of andere omweg.
 
 ## 1. Vastgestelde uitgangssituatie
 
-- Lokale repository `SmartHome_Stalman`: HEAD `1d6e3b65a5941fa7fe1042c1cc63c0ff85b1d360`; geen latere commits en vóór dit plan een schone werkboom.
+- Lokale repository `SmartHome_Stalman`: aanvankelijke planbaseline `1d6e3b6`, lokale installatieproef vastgelegd in `dd502c59ae21651a4d1820f4bc3f2df14f181d37`. Tijdens de read-only productiepreflight is HEAD nog `dd502c5`. Bestaande, niet aan deze opdracht gerelateerde lokale Ring-wijzigingen in `README.md`, `config/configuration.yaml`, `config/dashboards/ring_cameras.yaml` en `docs/RING_DASHBOARD.md` zijn ongemoeid gelaten. Alleen dit installatieplan wordt bijgewerkt.
 - Op 31 oktober opnieuw uitsluitend read-only via bestaande SSH-toegang gecontroleerd: `/home/stallieman/SmartHome_Stalman/config/custom_components/battery_sim`.
 - HACS registreert `hif2k1/battery_sim`, `version_installed: v2.9.0`, `installed_commit: aaac361`. Het integratiemanifest zegt `2.7.0`; dat is ook het gedocumenteerde upstream-manifest. Deze metadata alleen bewijst geen bronidentiteit. De vier hieronder gecontroleerde bestanden zijn wél bytegelijk aan de gepinde testbron. Geen volledige integratiemapvergelijking uitgevoerd.
 - `stalman_audit.py` is niet geïnstalleerd. Het lokale voorstel wijzigt uitsluitend import/decorators in de initializer; de oorspronkelijke batterijmethod bodies blijven AST-gelijk.
@@ -128,6 +128,88 @@ Rollback wordt vooraf door dezelfde bevoegde beheerder goedgekeurd en uitgevoerd
 
 ## 6. Besluit en eerstvolgende veilige stap
 
-**Nu geen productie-installatie of financiële activatie.** De lokale fase-A-acceptatieproef met de actieve 5,12-kWh/0,8-kW-instellingen is geslaagd. De operationele preflight, actuele mount-/imagecontrole, herstelbare productieback-up, beheerrechten en afzonderlijke installatie-/herstarttoestemming uit fase B/C blijven nodig. Financiële jaartotalen hebben daarnaast meetdekkings- en contractblokkades.
+**Nu geen productie-installatie of financiële activatie.** De lokale fase-A-acceptatieproef met de actieve 5,12-kWh/0,8-kW-instellingen is geslaagd. De read-only preflight uit §7 is een historisch meetmoment; de eigenaar heeft inmiddels mount/image en de nieuwe gecontroleerde back-up bevestigd (§8). Bevoegdheden en expliciete installatie-/stop-/starttoestemming blijven nodig; scripts controleren alle feiten opnieuw en proberen ontbrekende rechten niet te omzeilen. Financiële jaartotalen hebben daarnaast meetdekkings- en contractblokkades.
 
-Eerstvolgende veilige stap: laat de eigenaar de lokale proef beoordelen en bepaal daarna de toestemming voor fase B; geen automatische overgang naar installatie. Contractnota en volledige tariefinformatie kunnen parallel worden aangevuld. Tot een expliciete volgende opdracht blijven server, HACS-installatie en alle productie-activeringsvlaggen ongewijzigd.
+Eerstvolgende veilige stap: leg de blokkades voor aan de eigenaar en laat een reeds bevoegde beheerder de ontbrekende containergegevens en back-up-/herstelprocedure beoordelen. Geen rechtenverhoging of andere toegangsroute proberen. Het maken/vernieuwen van een back-up en elke installatie/herstart vereisen een nieuwe expliciete opdracht. Contractnota en volledige tariefinformatie kunnen parallel worden aangevuld. Tot die tijd blijven server, HACS-installatie en alle productie-activeringsvlaggen ongewijzigd.
+
+## 7. Read-only productiepreflight · 31 oktober 2026, circa 11:04 CET
+
+Uitgevoerd via `ssh homeassistant` als `stallieman`, zonder sudo, Docker-exec, API-token, configuratiecontrole, server-schrijfacties of herstart. Bestaande testresultaten van `dd502c5` zijn gebruikt; er zijn geen tests herhaald. Alleen archiefheaders en geselecteerde niet-geheime configuratie-/metadata zijn bekeken, geen back-upinhoud uitgepakt en geen credentialbestanden gelezen.
+
+| Controle | Bevinding | Oordeel |
+|---|---|---|
+| Bereikbaarheid / Core-versie | Lokale HTTP-GET op `http://127.0.0.1:8123/` geeft 200. `config/.HA_VERSION` vermeldt `2026.10.4`. Dit bestand bewijst niet zelfstandig de draaiende procesversie. | HTTP bereikbaar; actieve Core-versie niet onafhankelijk vastgesteld. |
+| Docker-container | `docker ps` via de bestaande socket geeft `permission denied`. Geen alternatieve of verhoogde toegang geprobeerd. Containerstatus, actieve image/digest en `/config`-bindmount konden niet worden bevestigd. | Blokkade. |
+| Battery Simulator | Alle vier bronhashes uit §1 opnieuw identiek. Manifest blijft `2.7.0`, zoals de gepinde v2.9.0-bron. Geen audithelper aanwezig. De eerdere HACS-release-identificatie en de nu herbevestigde bronidentiteit passen bij het geteste voorstel; geen volledige integratiemapvergelijking gedaan. | Bronbinding slaagt. |
+| Package-/dashboardregistratie | Actief: `stalman_energie` → `packages/energie_thuisbatterij.yaml`; YAML-dashboards `energie-thuisbatterij-yaml` en `ring-cameras` met hun bestaande bestanden. Beide dashboardbestanden zijn leesbaar. | Registraties gecontroleerd; beide dashboards behouden. |
+| Financiële configuratie | Actief energiepackage bevat `input_boolean`, `input_number`, `template` en `utility_meter`, geen `command_line`. Map `config/energy_finance` ontbreekt; alleen het energiepackage is aanwezig, geen audit-/collectorpackage. | Nieuwe keten niet geïnstalleerd; geen bestaande collector-DB op het geplande pad aangetroffen. |
+| Bestandsconflicten | Actief energiepackage SHA256 `ff1fe23c913df617eeee46abf8cce5380f3c4a95c40abca123b5a4dd6ec35155`, lokale kandidaat `530e71b7c946ee9a81902c5572deed23a8e373910a763f9d16c03dad9d96ccef`. Actief energiedashboard SHA256 `e539267c12f8943c2bc74310f82aa316af2e77f7adf1fce3eac798652a9c25e7`, lokale kandidaat `037c6f85badbf0aec40a19008a53eb2d259b827ac5ab8ee1a6b10e46d6b10327`. | Doelbestanden bestaan en verschillen: gerichte diff/merge en back-up verplicht, niet blind overschrijven. |
+| Afhankelijkheden / ruimte | Op de host: Python 3.12.3; PyYAML, sqlite3 en zoneinfo aanwezig; circa 19,3 GB beschikbaar. De actieve containeromgeving kon niet worden geïnspecteerd. | Hostvereisten aanwezig; containervereisten alleen lokaal bewezen, productiecontrole open. |
+| Schrijfrechten configuratie | Config-root, hoofdconfiguratie, packages en dashboards zijn voor deze gebruiker volgens `os.access` schrijfbaar. Dit is alleen een toegangscontrole, geen daadwerkelijke schrijfproef. | Deels uitvoerbaar, maar geen toestemming tot schrijven gegeven. |
+| Schrijfrechten integratie / rollback | `custom_components`, `custom_components/battery_sim` en de initializer zijn root-owned en niet schrijfbaar voor `stallieman` (directories 0755, initializer 0644). | Installeren én terugzetten van de integratie zijn met huidige rechten niet uitvoerbaar. Niet omzeilen. |
+
+### Bestaande back-ups
+
+- `/home/stallieman/homeassistant-backup.tar.gz` bestaat en is als dezelfde SSH-gebruiker leesbaar en te openen: 24.138.864 bytes, wijzigingstijd **30 oktober 2026 23:03:27 CET**, mode **0644**. Het doorlopen van 2.802 archiefheaders slaagt; er is niets uitgepakt of uit geheime leden gelezen.
+- Geselecteerde headercontrole: `config/configuration.yaml`, `config/custom_components/battery_sim/__init__.py` en `config/.storage/core.config_entries` zijn aanwezig. Het huidige `config/packages/energie_thuisbatterij.yaml` is in deze controle **niet** aangetroffen. De back-up is daarom niet bevestigd als complete actuele rollbackbaseline voor de geplande wijzigingen.
+- Er is ook een leesbare map `/home/stallieman/.ring-dashboard-backup.yL1LDM` met een `configuration.yaml`; de inhoud is niet geopend. Dit is geen bewezen volledige HA-/simulatorback-up.
+- Geen extractie-, integriteits-/herstelproef of consistentiecontrole van eventuele databases uitgevoerd. Leesbare archiefheaders bewijzen geen herstelbaarheid van de volledige back-up. De bestaande lokale herstelproef uit fase A vervangt dat productievereiste niet.
+- Mode 0644 beperkt de archieftoegang niet tot alleen de eigenaar. Behandel de back-up als mogelijk gevoelig en laat een bevoegd beheerder bij een afzonderlijk toegestane back-upopdracht veilige opslag/toegang en een volledig actueel manifest vastleggen. Nu geen rechten of bestanden gewijzigd.
+
+**Historisch preflightoordeel: NO-GO met de toen beschikbare SSH-rechten.** De geteste bronbinding en lokale keten waren in orde, maar Docker-/integratieschrijfrechten, actieve mount/image en een actuele volledige back-up waren nog niet bevestigd. De eigenaar heeft daarna de omgeving en een nieuwe gecontroleerde back-up bevestigd; zie §8. Rechten worden niet verondersteld of automatisch aangepast. Financiële activatie blijft geblokkeerd door §3.
+
+## 8. Installatie- en rollbackscripts — uitsluitend lokaal ontwikkeld
+
+### Nieuwe bevestiging door de eigenaar
+
+De eigenaar bevestigt HA 2026.10.4 op Ubuntu ARM64, container `homeassistant`, image-ID `sha256:23f4dfbb69ce76315dbc4de7915504f1c2dcecd7ca2648113a493a385972e133`, bindmount `/home/stallieman/SmartHome_Stalman/config` en 18 GB vrij. Nieuwe back-up: `/home/stallieman/homeassistant-backup-20261031.tar.gz`, afzonderlijk uitgepakt en oorspronkelijke simulatorbestanden bytegelijk bevonden. Dit vervangt de oude onvolledige back-up als opgegeven uitgangspunt, niet als overslaan van scriptcontroles. Tijdens de scriptontwikkeling zijn geen productiechecks uitgevoerd, ook geen dry-run via SSH.
+
+### Bestanden en standaardgedrag
+
+- [install_battery_audit.sh](../scripts/install_battery_audit.sh): audit-only-installatie.
+- [rollback_battery_audit.sh](../scripts/rollback_battery_audit.sh): expliciet gekozen herstelpunt terugzetten.
+- Beide gebruiken [battery_audit_deployment.py](../scripts/battery_audit_deployment.py) en de bestaande repositorybestanden. De wrappers zijn dus geen losse, zelfstandige distributiebestanden. Hostafhankelijkheden: Python 3.9+ met PyYAML, tarfile, sqlite3/zoneinfo voor de HA-runtime en Docker-toegang; er worden geen pakketten geïnstalleerd. Het ondersteunde doel blijft de bevestigde Ubuntu/Python 3.12-omgeving.
+- Standaard **dry-run**: geen bestanden/lock/herstelpunt aanmaken, geen validatiecontainer en geen stop/start. Alleen read-only preflight. Alleen `--apply` staat lokale hostwijzigingen en de gecontroleerde stop/start toe. Er is geen SSH-aanroep, sudo, geforceerde installatie, image pull of automatische rollback.
+- Bij ontbrekende rechten, afwijkingen, symlinks/speciale bestanden, bestaande nieuwe doelpaden, bron-/backuphashverschil, gewijzigd batterijprofiel of onvoldoende ruimte stoppen de scripts. Schrijfrechten worden werkelijk gecontroleerd; bij een bestaande file moet ownership met de huidige identiteit behouden kunnen blijven. Er is geen chmod/chown-reparatie van actieve doelbestanden om toegang te verkrijgen.
+
+### Gecontroleerde installatievolgorde
+
+1. Inspecteer actieve container/image en de exacte beschrijfbare `/config`-bindmount. Controleer Linux/ARM64, Core 2026.10.4 en runtime-identiteit/afhankelijkheden zonder credentials. Controleer de vier originele bronhashes en de bestaande batterijbinding, bronnen, efficiënties, frequentie en 5,12-kWh/2,5-/0,8-kW-configuratie. Afwijkende opties of solar-cap zijn niet toegestaan.
+2. Controleer leesbaarheid en veilige archiefpaden van de opgegeven back-up, vereiste configuratieleden en byte-identiteit van de vier oorspronkelijke simulatorbestanden. Er wordt niets willekeurig uitgepakt. Controleer zowel configuratie- als herstelopslag: minimaal 1 GiB en bovendien voldoende voor drie maal de configuratiegrootte plus 256 MiB reserve. De scriptcheck kan dus strenger zijn dan alleen de bevestigde 18 GB.
+3. Alleen onder `--apply`: neem een exclusieve deploymentlock en maak een privéherstelmap onder `~/.local/state/stalman-audit` (0700, eigendom uitvoerder). Kopieer de configuratie naar afgeschermde staging en breng uitsluitend de kandidaatwijzigingen daar aan. De kopie kan secrets bevatten en mag nooit in Git, chat of publieke artifactopslag terechtkomen.
+4. Valideer staging met dezelfde image-ID via `docker run --pull=never --network none --read-only`, met alleen staging als `/config` en tijdelijke `/tmp`/`/run`. Commandouitvoer wordt niet getoond, ook niet bij fouten. Een validatiefout raakt de actieve configuratie niet en herstart niets. Configuratiecontrole bewijst geen hardware-/config-entrygezondheid; de eerdere HA-proef blijft aanvullend bewijs.
+5. Stop uitsluitend de bestaande container gecontroleerd. Er is geen afgedwongen kill: Docker krijgt een onbeperkte gracetermijn; de CLI-wachttijd is begrensd op 180 seconden en een timeout stopt het script voor handmatige beoordeling. Na bevestigde stop en hercontrole van bestanden/batterijconfiguratie: maak een nieuwe consistente volledige configuratieback-up, originele beheerde bestanden en een hash-/ownershipmanifest. Dit veronderstelt dat geen andere hostprocessen dezelfde HA-runtimebestanden schrijven.
+6. Installeer alleen de geïnstrumenteerde initializer, helper, vijf financiële kern-/policybestanden en twee collectorpackages. Voeg twee includes chirurgisch aan de bestaande package-mapping toe. Voeg in het bestaande energiepackage alleen de financiële command_line-sensor en de bekende geldtemplates toe/vervang deze op `unique_id`; andere sensoren, helpers en instellingen blijven behouden. Alle dashboardbestanden, dashboardregistraties en overige integraties blijven onaangeroerd. De auditpolicy staat voor audit-only-ontvangst aan, maar alle contract- en vaste-kostenbevestigingen blijven **false**. Geen eurovrijgave.
+7. Start dezelfde container zonder nieuwe image. Wacht op HTTP-bereikbaarheid en aantoonbaar geldige, gekoppelde auditbatches in de nieuwe SQLite-keten. Controleer de ongewijzigde batterijbinding/configuratie en ondersteunende bronbestanden opnieuw. Beperkte standaardwachttijd: 180 seconden, aanpasbaar tussen 30 en 600. Geen bedragen of sensor-/API-tokens nodig voor de healthcheck. Live modelpariteit wordt niet opnieuw met een tweede productie-simulator gemeten; daarvoor geldt het bestaande lokale bewijs. Bij ontbrekend auditbewijs stopt de installatie als niet-gevalideerd, zonder stilzwijgende reparatie of rollback.
+
+De scripts wijzigen geen dashboards; eventuele latere presentatie van nieuwe venstersensoren vraagt een afzonderlijk beoordeelde dashboardwijziging. De synthetische Docker-interacties in de nieuwe scripttests zijn mocks; de echte HA-transport-/herstartproef uit `dd502c5` is bestaand, afzonderlijk bewijs en geen integrale productieproef van deze nieuwe deployer.
+
+### Herstelpunt en expliciete rollback
+
+Het installatiescript toont alleen het pad naar het privéherstelpunt. Bewaar dit pad: rollback vereist `--restore-point` en kiest nooit automatisch de nieuwste back-up. De map bevat `configuration.tar.gz`, `originals/` en `manifest.json`; het manifest wordt vóór de eerste actieve bestandsvervanging geschreven. Fouten vóór dat moment kunnen de container gestopt achterlaten zonder bruikbaar automatisch herstelmanifest; de originele actieve bestanden zijn dan nog niet gewijzigd en een beheerder moet de situatie beoordelen. Geen automatische start/repair bij een fout.
+
+Rollback controleert image/mount, batterijbinding, ruimte, rechten, snapshots en originele hashes. Bestandsdrift buiten de bekende voor-/nahashes blokkeert herstel, evenals een fout in de herstelde stagingconfiguratie. Een gedeeltelijke installatie met een reeds gestopte container kan vanuit een voorbereid manifest worden teruggedraaid. Herstel onder dezelfde lock; hercontroleer de bestanden opnieuw vlak vóór wijziging. Zet alleen de beheerde originele bestanden en hun ownership/mode terug en verwijder alleen de tijdens installatie nieuw toegevoegde code/configuratiebestanden. Herstart uitsluitend dezelfde container; controleer bereikbaarheid en batterijconfiguratie.
+
+**Rollback overschrijft niet automatisch `.storage`, Recorder of de nieuwe intervaldatabase/waarnemingen.** Die blijven bewaard als runtime-/foutbewijs; generatiegrenzen worden niet aan elkaar geplakt. Een volledig snapshotherstel van state/databases is een aparte beheerhandeling. De achterblijvende financiële runtime-map voorkomt bewust een blinde herinstallatie. Een ongeldige installatie of healthcheck vereist beoordeling en een expliciete rollbackopdracht; geen automatische herpoging. De scripts hebben nog geen productie-autorisatie.
+
+### Voorbeelden — nu niet uitvoeren op productie
+
+Alleen ter voorbereiding, door een bevoegde uitvoerder na nieuwe toestemming en vanuit de repository op de bevestigde host:
+
+```bash
+# Alleen lezen; ook hiervoor geldt nu: niet op productie uitvoeren.
+bash scripts/install_battery_audit.sh
+bash scripts/rollback_battery_audit.sh --restore-point /absoluut/pad/naar/herstelpunt
+
+# Alleen na expliciete toestemming voor wijzigingen en gecontroleerde stop/start.
+bash scripts/install_battery_audit.sh --apply
+bash scripts/rollback_battery_audit.sh --restore-point /absoluut/pad/naar/herstelpunt --apply
+```
+
+Andere paden mogen alleen expliciet met `--config`, `--backup` en `--restore-root` worden opgegeven; de echte bindmount en overige veiligheidschecks blijven gelden. Pas geen image-ID/bronhash aan om een afwijking te omzeilen.
+
+### Lokale validatie en vrijgave
+
+Gerichte synthetische tests in [test_battery_deployment.py](../tests/test_battery_deployment.py) controleren dry-run zonder schrijfacties, expliciete apply/rollback, behoud van Ring-dashboard en niet-financiële instellingen, uitgeschakelde geldberekeningen, configuratiefout vóór stop, gedeeltelijke schrijffout, mislukte audit-healthcheck zonder automatische rollback, terugzetten vanuit een gestopte container, drift, corrupte back-up/herstelpunten, rechten-/ruimte-/image-/mount-/batterijafwijkingen en dubbele includes. Docker wordt volledig gemockt: geen daemon of server is benaderd. Bash-syntax en beide help-entrypoints zijn gecontroleerd. Geen bestaande volledige testsuites herhaald.
+
+**Stop vóór iedere productiehandeling.** Actuele bevoegdheden zijn niet opnieuw vastgesteld; de eerdere beperkte SSH-gebruiker kon de HACS-map niet wijzigen. De scripts mogen dit niet omzeilen. Beoordeel deze lokale resultaten en regel afzonderlijk installatie-/stop-/start-/rollbacktoestemming voor een al bevoegde beheerder. Contract- en volledige-meetdekkingsblokkades blijven onveranderd.
