@@ -129,3 +129,5 @@ command_line:
     - with_eur
     - saving_eur
     - observed_until
+    - measured_from
+    - coverage_kind

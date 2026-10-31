@@ -94,6 +94,19 @@ def calculate(config, observation):
                 'Billing result needs a complete confirmed settlement period')
         require(observed.date() == end and observed.time().isoformat().startswith('00:00:00'),
                 'Billing observations must end at the exclusive end boundary')
+    measured_from = timestamp_start = datetime.combine(start, datetime.min.time(), ZoneInfo('Europe/Amsterdam'))
+    if observation.get('measured_from') is not None:
+        try:
+            measured_from = datetime.fromisoformat(observation['measured_from'])
+            require(measured_from.tzinfo is not None, 'Measurement start needs timezone')
+        except (TypeError, ValueError) as exc:
+            raise Unavailable('Invalid measured_from') from exc
+    partial = observation.get('coverage_kind') == 'contiguous_partial_day'
+    require(timestamp_start <= measured_from < observed, 'Invalid measured measurement window')
+    if partial:
+        require(daily and measured_from > timestamp_start, 'Partial coverage only valid for explicit day segment')
+    else:
+        require(measured_from == timestamp_start, 'Unmarked incomplete period')
     candidates = [p for p in config.get('plans', []) if p.get('valid_from') and p.get('valid_until')
                   and day(p['valid_from']) <= start and day(p['valid_until']) >= end]
     require(len(candidates) == 1, 'Need exactly one confirmed tariff plan covering the whole period')
@@ -103,7 +116,8 @@ def calculate(config, observation):
     fee_rate = None if netting else nonnegative(plan.get('export_fee_cash_per_kwh'))
     result = {'status': 'ok', 'start': str(start), 'end': str(end), 'scope': observation['scope'],
               'classification': 'schatting op gemeten energie; batterijvariant is simulatie',
-              'netting': netting, 'plan': plan['id'], 'observed_until': observed.isoformat()}
+              'netting': netting, 'plan': plan['id'], 'observed_until': observed.isoformat(), 'measured_from': measured_from.isoformat(),
+              'coverage_kind': 'contiguous_partial_day' if partial else 'from_midnight'}
     totals = {}
     for scenario in ('without', 'with'):
         data = observation[scenario]

@@ -71,3 +71,6 @@ Activatie op de server vereist afzonderlijke expliciete toestemming.
 De [financiële handleiding](docs/FINANCE.md) beschrijft de Essent-contractinvoer,
 jaarlijkse saldering, regels vanaf 2027 en de vergelijking met de virtuele batterij.
 Onbevestigde contract- of meetgegevens blokkeren euro-uitkomsten.
+
+De [intervalverzamelaar](docs/INTERVAL_COLLECTOR.md) koppelt P1- en simulatie-tellerstanden
+zonder dubbeltellingen. Het aparte HA-package is lokaal voorbereid en nog niet geactiveerd.

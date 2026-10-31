@@ -28,3 +28,7 @@ config/*.log.*
 config/energy_finance/observations.json
 __pycache__/
 *.pyc
+
+# Persistent interval collector journal (never commit readings)
+config/energy_finance/intervals.sqlite*
+config/energy_finance/.observations.json*

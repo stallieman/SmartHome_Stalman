@@ -1,0 +1,30 @@
+{
+  "entities": {
+    "real_import": "sensor.p1_meter_energie_import",
+    "real_export": "sensor.p1_meter_energie_export",
+    "real_import_1": "sensor.p1_meter_energie_import_tarief_1",
+    "real_import_2": "sensor.p1_meter_energie_import_tarief_2",
+    "real_export_1": "sensor.p1_meter_energie_export_tarief_1",
+    "real_export_2": "sensor.p1_meter_energie_export_tarief_2",
+    "sim_import": "sensor.marstek_venus_e_5_12kwh_3nd_gen_simulated_sensor_p1_meter_energie_import",
+    "sim_export": "sensor.marstek_venus_e_5_12kwh_3nd_gen_simulated_sensor_p1_meter_energie_export",
+    "tariff": "sensor.p1_meter_tarief"
+  },
+  "tariff_mapping": {
+    "1": null,
+    "2": null
+  },
+  "mapping_confirmed": false,
+  "pairing_confirmed": false,
+  "max_interval_seconds": 90,
+  "max_age_seconds": 90,
+  "max_skew_seconds": 10,
+  "counter_sum_tolerance_kwh": "0.002",
+  "max_power_kw": {
+    "real_import": null,
+    "real_export": null,
+    "sim_import": null,
+    "sim_export": null
+  },
+  "allow_partial_first_day": false
+}

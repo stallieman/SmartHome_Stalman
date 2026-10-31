@@ -114,3 +114,7 @@ Voor latere installatie, uitsluitend na toestemming: controleer back-up en actie
 ## Nog nodig
 
 Contractblad met exacte ingangs-/einddatums, levering/belasting en btw-specificatie, reeds verwerkte korting, 2027-importtarieven, cash-basis van vergoeding/kosten, vóór-2027 staffel en normaal/dal-salderingsregels, en een betrouwbare gekoppelde intervalaanvoer met simulator-tariefverdeling. Tot die tijd is **Nog niet beschikbaar** de correcte uitkomst.
+
+## Intervalverzamelaar
+
+Een lokale implementatie met een afzonderlijk HA-package is nu voorbereid. Zie [INTERVAL_COLLECTOR.md](INTERVAL_COLLECTOR.md) voor de tellerbronnen, SQLite-baselines, tarief- en restartdetectie, gedeelde meetvensters en de beperkingen rond asynchrone bronnen en daggrenzen. Deze is niet geïnstalleerd. Mapping en bronafstemming blijven onbevestigd. De rekenkern accepteert uitsluitend een expliciet gemarkeerd gedeeltelijk eerste-dagvenster; meetvenster en dekkingssoort worden in de financiële rapportmetadata behouden. Zonder die markering is een gedeeltelijke periode ongeldig.

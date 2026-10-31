@@ -34,3 +34,7 @@ Dit is een offline structuur- en templatecontrole, geen volledige Home Assistant
 ## Financiële revisie · 2026-10-31
 
 28 onafhankelijke unittest-scenario's slagen: korting uitsluitend op levering, reeds verwerkte korting, btw-basis, normaal/dal, jaarlijkse saldering, overschot, terugleverkosten, verliezen via netmetingen, negatieve besparing, nulprijzen, ontbrekende/ongeldige data, overlappende plannen en ingangsdatum. Historische jaarreferentie beïnvloedt geen meetberekening. YAML en HA-templates slagen met tests voor onbeschikbare, oude en verouderde dagrapporten. Commandoregeladapter geeft bij lege productie-invoer `unavailable` met null-bedragen. Geen HA-schema-/live test of serverwijziging uitgevoerd. Zie FINANCE.md voor de geblokkeerde gegevensaanvoer en vereiste contractinformatie.
+
+## Intervalverzamelaar · 2026-10-31
+
+61 unittests slagen (bestaande financiën plus collector): tellerdelta's, normaal/dal-toewijzing, idempotentie, conflicterende duplicaten, ontbrekende intervallen, onbeschikbare en niet-opnieuw-gerapporteerde states, resets, HA-/procesherstart, tariefwissels, timestampkwaliteit, plausibiliteitsgrenzen, zomer-/wintertijd, configuratiewijzigingen, atomaire export en invoer voor de financiële rekenkern. Collector-YAML, native snapshot-template, ontbrekende-statepad en shell-argumentcodering zijn apart offline gecontroleerd. Alle testmetingen zijn synthetisch en staan buiten productieopslag. Geen servercontact, HA-schema-validatie of runtimecontrole uitgevoerd.
