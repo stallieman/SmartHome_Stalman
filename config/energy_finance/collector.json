@@ -15,16 +15,16 @@
     "2": null
   },
   "mapping_confirmed": false,
-  "pairing_confirmed": false,
-  "max_interval_seconds": 90,
-  "max_age_seconds": 90,
-  "max_skew_seconds": 10,
   "counter_sum_tolerance_kwh": "0.002",
-  "max_power_kw": {
-    "real_import": null,
-    "real_export": null,
-    "sim_import": null,
-    "sim_export": null
+  "schema_version": 2,
+  "max_observation_gap_seconds": 15,
+  "sources": {
+    "measured_p1": {
+      "activity_age_seconds": 45
+    },
+    "simulated_marstek": {
+      "activity_age_seconds": 120
+    }
   },
-  "allow_partial_first_day": false
+  "pairing_mode": "blocked_missing_simulator_source_window"
 }

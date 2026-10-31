@@ -18,7 +18,7 @@ assert set(pkg) == {'input_text', 'shell_command', 'automation'}
 assert pkg['input_text']['stalman_finance_session']['initial'] == ''
 automation = pkg['automation'][0]
 assert automation['mode'] == 'queued'
-assert automation['triggers'][1]['seconds'] == '0'
+assert automation['triggers'][1]['seconds'] == '/10'
 assert automation['actions'][-1]['then'][0]['error'] is True
 now = datetime(2027, 1, 2, tzinfo=timezone.utc)
 values = {}
@@ -26,7 +26,7 @@ for role, entity in config['entities'].items():
     values[entity] = SimpleNamespace(
         state='1' if role == 'tariff' else '0',
         attributes={'unit_of_measurement': 'kWh'} if role != 'tariff' else {},
-        last_reported=now, last_changed=now - timedelta(days=1))
+        last_reported=now, last_updated=now, last_changed=now - timedelta(days=1))
 
 class States:
     def __getitem__(self, entity):
@@ -56,7 +56,8 @@ assert args[0:2] == ['python3', '/config/energy_finance/collector.py']
 assert len(args) == 10
 assert json.loads(unquote(args[-1])) == snapshot
 assert '$(' not in args[-1] and '`' not in args[-1] and "'" not in args[-1]
-assert not config['mapping_confirmed'] and not config['pairing_confirmed']
-assert all(v is None for v in config['max_power_kw'].values())
+assert not config['mapping_confirmed']
+assert config['pairing_mode'] == 'blocked_missing_simulator_source_window'
+assert config['schema_version'] == 2
 print('PASS: collector YAML, native snapshot, missing-state handling and shell argument escaping.')
 print('No Home Assistant schema or runtime check performed.')

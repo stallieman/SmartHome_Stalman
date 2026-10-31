@@ -1,106 +1,110 @@
-# P1 / virtuele batterij — intervalverzamelaar
+# Bronbewuste P1 / Marstek-verzameling — revisie 2
 
-Uitsluitend lokaal ontwikkeld. Geen verbinding met Ubuntu gemaakt, geen serverwijziging, herstart of push. De financiële rekenkern uit `29e6ca8` blijft verantwoordelijk voor tarieven en saldering.
+Lokaal ontwikkeld na de live steekproeven. De server is uitsluitend read-only onderzocht. Er is niets geïnstalleerd of herstart.
 
-## Bestanden en gegevensstroom
+## Onderzoek: de benodigde simulatorinformatie ontbreekt
 
-- `config/energy_finance/collector.py`: standaardbibliotheek-Python, transactionele SQLite-opslag en atomaire financiële export.
-- `config/energy_finance/collector.json`: entiteiten, bevestigde tariefmapping, kwaliteitsgrenzen.
-- `config/packages/energie_intervalcollector.yaml`: afzonderlijk, nog niet geregistreerd HA-package met sessiehelper, automation en shell_command. Geen tokens of netwerktoegang nodig.
-- `tests/test_interval_collector.py` en `scripts/validate_interval_collector.py`: lokale controles met synthetische waarnemingen.
+De eerdere API-steekproeven lieten circa 10–20 seconden tussen P1-importupdates en circa 60 seconden tussen simulator-importupdates zien. Statische exporttellers en het inactieve tariefregister konden urenoude `last_reported`-waarden hebben. De eis uit `6fa804e` dat alle counters iedere minuut opnieuw rapporteerden, met maximaal 10 seconden onderling verschil, verwierp daardoor ook bruikbare bronwaarnemingen.
 
-Na een latere goedgekeurde installatie: een automation neemt iedere minuut, bij tariefwissels en na HA-start een snapshot van alle betrokken state-objecten. Eén snapshot bevat tellerstanden, eenheden, `last_reported`, tarief-`last_changed`, resetmetadata en een HA-sessie-ID. De shell-opdracht geeft uitsluitend URL-gecodeerde JSON als één argument door. Er komen geen ruwe sensorstrings in shellcode.
+Read-only controle van de **geïnstalleerde** Battery Simulator bevestigt:
 
-De collector schrijft `intervals.sqlite` (inclusief WAL/SHM en lockfile) onder `energy_finance`. Alle snapshots blijven bewaard, inclusief ongeldige samples en redenen. Geldige intervallen bevatten begin/eind, tarief, alle tellerdelta's en afzonderlijk **gemeten** en **gesimuleerde** import/export. `observations.json` is een vervangbaar exportbestand voor `compare.py`, geen primaire opslag. Runtimebestanden zijn uitgesloten van Git.
+- `__init__.py:859–861`: periodieke verwerking via `async_periodic_update`.
+- `__init__.py:883–948`: bronwijzigingen worden als tellerdelta's intern geaccumuleerd; gelijke waarden worden overgeslagen.
+- `sensor.py:349–385`: de gesimuleerde import biedt een afgerond percentage bespaarde import; export heeft geen bronperiode-attributen.
+- `sensor.py:514–532`: de hoofdsensor biedt instellingen, bron-entity-ID's, status en opnamestart, geen verwerkte tellergrens.
+- `__init__.py:1379–1428`: gesimuleerde tellers worden verhoogd en sensorupdates verstuurd; een verwerkte P1-meetperiode wordt daarbij niet als openbaar attribuut meegegeven.
 
-## Bronnen
+Een API-controle van alleen de relevante attributen bevestigde dit: import bevat onder meer `last_reset` en `percentage_import_energy_saved`; export `last_reset`; de hoofdsensor onder meer `sources` en `date_recording_started`. Geen van deze attributen identificeert de daadwerkelijk verwerkte P1-import/exportstanden of de simulatiebatch. De afgeronde procentwaarde is daarvoor ook ongeschikt. Tokeninhoud en overige HA-configuratie zijn niet opgeslagen.
 
-| Rol | Entity-ID |
-|---|---|
-| Werkelijke import/export totaal | `sensor.p1_meter_energie_import`, `sensor.p1_meter_energie_export` |
-| Werkelijke import per tariefcode | `sensor.p1_meter_energie_import_tarief_1`, `sensor.p1_meter_energie_import_tarief_2` |
-| Werkelijke export per tariefcode | `sensor.p1_meter_energie_export_tarief_1`, `sensor.p1_meter_energie_export_tarief_2` |
-| Actieve tariefcode | `sensor.p1_meter_tarief` |
-| Gesimuleerde import | `sensor.marstek_venus_e_5_12kwh_3nd_gen_simulated_sensor_p1_meter_energie_import` |
-| Gesimuleerde export | `sensor.marstek_venus_e_5_12kwh_3nd_gen_simulated_sensor_p1_meter_energie_export` |
+**Conclusie:** de collector kan bronwaarnemingen betrouwbaar bewaren en fouten herkennen, maar kan nu niet aantonen welke werkelijke P1-meetperiode bij een simulatie-update hoort. `last_updated`, `last_reported`, ongeveer gelijke tijden, vergelijkbare delta's of een handmatige bevestigingsvlag lossen dat niet op.
 
-Alle energietellers moeten kWh leveren. Werkelijke import komt rechtstreeks uit de P1-tariefregisterdelta's; totalen zijn een onafhankelijke somcontrole. Gesimuleerde import wordt uitsluitend aan een tarief toegewezen als dat tarief aantoonbaar stabiel was gedurende het volledige interval en de inactieve P1-telwerken niet veranderden. Growatt, opgeslagen energie, efficiëntie en `total_energy_saved` worden niet nogmaals als financiële energie opgeteld.
+## Nieuwe verwerking
 
-## Geen dubbeltelling of fictieve nulwaarden
+`collector.py` bewaart twee onafhankelijke reeksen:
 
-- Iedere snapshot heeft één unieke UTC-tijdstempel. Een identieke herhaling is idempotent; de tellerbaseline wordt niet opnieuw gebruikt voor extra energie.
-- Een afwijkende snapshot met hetzelfde tijdstip is een duurzame kwaliteitsfout: de dag blijft geblokkeerd, ook na latere geldige samples.
-- SQLite `BEGIN IMMEDIATE` bewaart snapshot en interval in één transactie. Een procesherstart leest dezelfde laatste baseline terug. De CLI gebruikt daarnaast een bestandsslot over ingestie, export en bestandvervanging, zodat een oudere exporter geen nieuwer rapport kan overschrijven.
-- Een nieuwe HA-sessie verbreekt het interval, ook als tellerstanden zijn hersteld. De helper begint na HA-start leeg; de startup-actie maakt een nieuw sessie-ID. Er wordt geen verbruik tijdens de herstart verzonnen.
-- `unknown`, `unavailable`, ontbrekende entiteiten, verkeerde eenheden, herstelde states, oude/toekomstige bronrapporten en niet-eindige getallen leveren nooit nulmetingen op.
-- Alle bronnen moeten sinds het vorige snapshot opnieuw hebben gerapporteerd. Een onveranderd tellergetal met een **nieuw** bronrapport mag een echte nuldelta zijn. Een oude state die alleen opnieuw wordt uitgelezen is geen bevestigde nul.
-- Dalende tellers, gewijzigde resetmetadata, onmogelijke sprongen, inconsistente P1-totalen en te grote tijdgaten blokkeren het interval. Een geldige teller na een fout is alleen een nieuwe baseline; de ontbrekende energie wordt niet overbrugd.
-- Tariefwissels (ook wissel-en-terug via `last_changed`) worden niet achteraf evenredig verdeeld. De huidige simulatorsensor heeft geen eigen tariefregister of betrouwbare tariefwissel-watermark; het overgangsinterval wordt afgewezen.
+| Bronreeks | Inhoud | Classificatie |
+|---|---|---|
+| `measured_p1` | Import/export totaal, tariefregisters 1/2 en actieve tariefcode | Gemeten tellerwaarnemingen |
+| `simulated_marstek` | Gesimuleerde import/export | Virtuele batterij, simulatie |
 
-## Instellingen die eerst bevestigd moeten worden
+De entity-ID's staan ongewijzigd in `collector.json`. P1-tariefregisters blijven als codes 1/2 geregistreerd; normaal/dal wordt niet geraden. Onbevestigde mapping verhindert de ruwe registratie niet. Alleen een expliciet bevestigde mapping wordt als metadata meegegeven.
 
-De productieconfiguratie is bewust geblokkeerd:
+Het afzonderlijke HA-package is voorbereid op een snapshot iedere tien seconden, plus HA-start en tariefwijzigingen. Dat is één leesmoment voor transport, **geen gesynchroniseerde meetperiode**. De collector beoordeelt en bewaart elke bron apart. Uitval van de simulator wist de bruikbare P1-reeks niet, en omgekeerd.
 
-1. Vul in `tariff_mapping` in welke P1-code `normal` en welke `offpeak` betekent. Bevestig dit aan de hand van contract en meter; zet daarna pas `mapping_confirmed` aan. Er is geen aangenomen 1/2-verdeling.
-2. Vul voor alle vier richtingen `max_power_kw` in op basis van de aansluiting en de toepasselijke simulatorgrenzen. De collector gebruikt die uitsluitend voor sprongdetectie; het zijn geen berekende verbruikswaarden.
-3. Controleer de broncadans en timestampafstemming. De voorgestelde grenzen zijn 90 s maximale bronleeftijd, 10 s maximaal timestampverschil en 90 s tussen snapshots bij een minuutpoll. Dit zijn conservatieve kwaliteitsinstellingen, geen bewijs van synchronisatie. Versoepel ze niet om fouten te laten verdwijnen.
-4. `pairing_confirmed` blijft uit totdat is aangetoond dat de simulator dezelfde P1-bronperiode heeft verwerkt als de fysieke tellers in de snapshot. **Een kleine `last_reported`-afstand bewijst dit niet.** Als de simulator achterloopt, is een verwerkings-watermark of een aanpassing van de snapshot-timing nodig; er worden geen kosten vrijgegeven op basis van alleen een tijdtolerantie.
-5. Contracttarieven blijven afzonderlijk te bevestigen in `tariffs.json`. Een correcte collector maakt ontbrekende contractgegevens niet geldig.
+Per bron krijgt een waarneming een status:
 
-## Dagdekking en grenzen
+- `baseline`: eerste bruikbare tellerstand, of nieuwe baseline na ontbrekende brondata.
+- `counter_changed`: waargenomen tellerwijziging, met de verschillen tussen de waargenomen standen.
+- `reported_unchanged`: opnieuw gerapporteerd, maar tellerstanden gelijk.
+- `unchanged_observation`: dezelfde standen en dezelfde bronrapporten opnieuw uitgelezen; **geen bewezen nulverbruik**. De geobserveerde intervaldelta blijft dan `null`.
+- `unavailable`: ontbrekende/niet-numerieke teller, verkeerde eenheid, herstelde state of ongeldige tijdmetadata. Geen vervanging door nul.
+- `discontinuity`: gat in snapshots, HA-herstart, reset, teruglopende timestamp of gewijzigde collectorconfiguratie. Geen delta over die grens.
 
-Tijden worden intern in UTC opgeslagen; daggrenzen zijn Europe/Amsterdam, inclusief zomer-/wintertijd. Er wordt niet geïnterpoleerd bij middernacht. Een interval over een niet-bemonsterde daggrens wordt afgewezen, omdat de energie vóór/na die grens niet bekend is.
+Alle delta's heten uitdrukkelijk `observed_counter_deltas`, niet verwerkte energie per tarief. Zelfs een opnieuw gerapporteerde ongewijzigde teller bewijst niet dat de simulator een bepaalde P1-periode heeft verwerkt.
 
-De dag-export is standaard alleen geldig vanaf een echte middernachtbaseline, met een aaneengesloten keten tot de laatste waarneming. Een gat, reset, herstart, onzekere tariefgrens of configuratiewijziging in die keten blokkeert de hele dag. Een momentopname waarvan de tellerwaarden pas na middernacht gerapporteerd zijn is geen gegarandeerde middernachtmeterstand. Met de huidige asynchrone sensoren kan volledige dagdekking daarom onhaalbaar blijven zonder extra bron-watermarks/grensmetingen. Dit is een expliciete beperking, geen geschatte nul.
+## Onveranderde tellers en bronactiviteit
 
-`allow_partial_first_day` is standaard uit. Voor expliciete lokale analyse kan deze **vóór de eerste meting** worden aangezet. Dan mag uitsluitend het eerste aaneengesloten installatievenster worden uitgevoerd met `coverage_kind: contiguous_partial_day` en de echte `measured_from`. Geen gaten later in de dag worden weggeknipt. De financiële kern controleert en bewaart dat label. Gebruik zo'n gedeeltelijk rapport pas in het dashboard wanneer de meetperiode zichtbaar wordt getoond; schakel dit niet in om volledige dagdekking te suggereren.
+Een oude timestamp van een onveranderde exportteller is geen automatische fout meer. P1-import kan intussen wel activiteit tonen. `recent_activity_observed` beschrijft uitsluitend of **een** state in die bron recent rapporteerde: standaard binnen 45 seconden voor P1 en 120 seconden voor Marstek. Dit diagnostische veld bewijst geen integratie-heartbeat of actualiteit van alle andere counters. Het geeft nooit financiële toestemming en maakt een oude state niet kunstmatig vers.
 
-Voor de gewone export betekent `coverage_confirmed` dekking van het expliciet aangegeven meetvenster; bij een gedeeltelijke eerste dag is dat uitdrukkelijk niet sinds 00:00. De rekenkern weigert ongemarkeerde gedeeltelijke periodes. Tot 2027 blijven dagelijkse eurobedragen wegens jaarlijkse saldering geblokkeerd. De collector genereert geen jaarlijkse salderingsverdeling of staffelkosten; `scope: billing` vraagt nog de gegevens beschreven in FINANCE.md.
+Er is geen grens meer op het tijdverschil tussen P1 en Marstek. Er wordt niet op timestampafstand gepaard. De bestaande kWh-eenheden, geldigheid van getallen, resetmetadata en P1-somcontrole blijven gecontroleerd. Een tellerwijziging zonder passend bijgewerkte `last_updated` is verdacht en verbreekt de reeks. Statische tellers met oude tijden worden wel opgeslagen, met hun originele metadata.
 
-## Herstel en beheer
+## Opslag, gaten en herstarts
 
-Een collector-procesherstart gebruikt de opgeslagen baseline en telt een identieke heraanbieding niet dubbel. Een onderbreking die groter is dan de toegestane intervalduur wordt wel als gat geregistreerd. Bij een ongeldige CLI-invoer wordt een eerdere succesvolle `observations.json` vervangen door een onbeschikbare uitvoer. Als de exportmap zelf niet schrijfbaar is, kan dat niet: de opdracht faalt en de bestaande financiële sensor blokkeert na maximaal 15 minuten oude invoer. Er worden geen data verwijderd of automatische reparaties uitgevoerd.
+- SQLite `BEGIN IMMEDIATE` bewaart beide bronrecords en het transportsnapshot in één transactie. De CLI vergrendelt ook ingestie en export samen.
+- Nieuwe tabellen: `snapshots_v2`, `source_observations_v2`, `faults_v2`. De v1-tabellen worden niet gewijzigd, verwijderd of naar betrouwbare financiële input gepromoveerd.
+- Identieke heraanbiedingen zijn idempotent. Een afwijkend snapshot met hetzelfde tijdstip wordt als duurzame fout vastgelegd. Oudere snapshots worden niet over nieuwe baselines heen gelegd.
+- Een procesherstart hervat de opgeslagen bronbaselines. Een nieuw HA-sessie-ID verbreekt beide observatievensters, ook als HA states herstelde.
+- Bij snapshots om de tien seconden is de voorgestelde maximale transportafstand 15 seconden. Een gemiste poll is dan een gedetecteerd gat. Dit staat los van de P1-/simulator-rapportcadans. Schedulervertraging kan ook een discontinuïteit veroorzaken; er wordt geen energie bij verzonnen.
+- Na een onbeschikbare bron wordt de volgende bruikbare stand alleen een baseline. Bij een reset wordt de huidige bruikbare stand de nieuwe baseline, zodat de reset niet als extra of negatieve energie wordt geteld.
+- Een niet-zichtbare reset die tussen twee waarnemingen volledig inhaalt zonder resetmetadata is met alleen counters niet aantoonbaar. Deze beperking geldt ook voor andere tellercollectoren.
 
-Wis de SQLite-database niet om een fout te verbergen. Bewaar bij een back-up ook de consistente database-inhoud: gebruik SQLite's backup-API of maak een back-up terwijl de collector stilstaat en neem de benodigde WAL-bestanden mee. De huidige implementatie heeft geen automatische retentie; de journaalbestanden groeien door. Bij later beheer kan gecontroleerde archivering worden toegevoegd.
+De SQLite-database en export blijven buiten Git. Bewaar bij back-ups een consistente database, bijvoorbeeld via SQLite's backup-API. Er is geen automatische verwijdering, retentie of risicovolle reparatie.
 
-Een wijziging van collectorinstellingen krijgt een andere configuratiehash en verbreekt de keten. Eerdere bedragen worden niet stilzwijgend onder nieuwe tariefmapping herberekend. Een beschadigde database wordt niet automatisch opnieuw aangemaakt.
+## Financiële export: verplicht geblokkeerd
 
-## Lokaal testen
+`observations.json` bevat altijd:
+
+```json
+{
+  "coverage_confirmed": false,
+  "paired_grid_deltas_confirmed": false,
+  "reason": "simulator_processed_p1_window_unavailable",
+  "without": null,
+  "with": null
+}
+```
+
+Daarmee geeft `compare.py` geen eurobedragen. Ook `pairing_confirmed: true`, gelijke timestamps of door een gebruiker aangeleverde willekeurige `processed_p1_window`-velden kunnen deze blokkade niet opheffen. Er is bewust geen fictief watermarkprotocol geïmplementeerd dat de huidige integratie niet levert. De optionele eerste-dagbenadering uit v1 wordt niet meer gebruikt voor collector-export.
+
+Een geslaagde collectoropdracht betekent nu **bronwaarnemingen verzameld**, niet **financiële vergelijking beschikbaar**. Ook nuldelta's, tariefwissels en middernacht maken van observaties geen geldige financiële periode. De bestaande financiële kern blijft tevens contractbevestiging, belasting/btw, geldigheidsperiode en jaarlijkse saldering controleren.
+
+## Wat voor betrouwbare koppeling nodig is
+
+Een volgende, afzonderlijk te ontwikkelen uitbreiding van de simulator moet een atomaire batch publiceren met ten minste:
+
+1. Een unieke batch-ID en een reset-/sessiegeneratie.
+2. De exacte daadwerkelijk verwerkte P1-bron-entity-ID's en begin-/eindtellerstanden, inclusief tariefregisters of aantoonbare tariefverdeling.
+3. De bij diezelfde batch behorende gesimuleerde import-/exportbegin- en eindstanden.
+4. Continuïteitsinformatie voor genegeerde/onbeschikbare brondata, zodat een bronuitval niet als nul wordt gecertificeerd.
+
+Alleen dan kan een toekomstige matcher een-op-een batches koppelen, herhaling uitsluiten en tarief-/daggrenzen controleren. Alleen een nieuw tijdstipattribuut is onvoldoende. Die integratie-uitbreiding is **niet** gedaan en vereist een aparte opdracht/beoordeling.
+
+## Tests en aantoonbare verbetering
 
 ```sh
 python3 -m unittest discover -s tests -v
-/private/tmp/stalman-dashboard-venv/bin/python scripts/validate_energy_dashboard.py
 /private/tmp/stalman-dashboard-venv/bin/python scripts/validate_interval_collector.py
+/private/tmp/stalman-dashboard-venv/bin/python scripts/validate_energy_dashboard.py
 ```
 
-De unittest-suite gebruikt uitsluitend tijdelijke SQLite-bestanden en synthetische tellerstanden. De aanvullende validator controleert YAML, native Jinja-snapshots, ontbrekende states en shell-argumentcodering. Dit is geen volledige HA-schema-/runtimecontrole.
+De regressies gebruiken synthetische gegevens met de gemeten cadans: P1 iedere tien seconden, Marstek iedere zestig seconden en urenoude onveranderde export-/tariefstates. Een directe vergelijking met de code uit `6fa804e` toont dat v1 het snapshot afwijst als verouderd, terwijl v2 de veranderde P1 en ongewijzigde simulator afzonderlijk bewaart. Beide gevallen mogen geen eurobedragen produceren zonder bronperiodebewijs.
 
-Voor een gecontroleerde lokale replay van een echt of zelf gemaakt testsnapshot:
+Verder worden bronuitval zonder verlies van de andere bron, resets en herstelbaselines, gaten, HA-/procesherstarts, timestampregressie, ongeldige waarden/eenheden, idempotentie, conflicterende duplicaten, transactie-rollback, behoud van het v1-archief en pogingen om financiële blokkering te omzeilen getest. YAML en de native snapshot-template bevatten nu ook `last_updated` en worden offline gecontroleerd.
 
-```sh
-python3 config/energy_finance/collector.py \
-  --config /tmp/confirmed-test-collector.json \
-  --database /tmp/stalman-intervals.sqlite \
-  --sample /tmp/snapshot.json \
-  --output /tmp/stalman-observations.json
-```
+Live HA-schema-/runtimevalidatie van deze revisie is niet uitgevoerd. Er is niets geïnstalleerd. De template- en unittestvalidatie geven toestemming voor een lokale commit, niet voor toepassing op de server.
 
-Gebruik voor lokale tests aparte instellingen en tijdelijke paden; schrijf geen testsnapshots in productie-runtimebestanden.
+## Latere installatie
 
-## Latere installatie — alleen na toestemming
+Alleen na afzonderlijke toestemming, een geldige back-up en HA-configuratiecontrole: plaats collector, configuratie en het aparte package; registreer het package naast de bestaande configuratie, zonder het UI-dashboard te wijzigen. De dagelijkse financiële uitvoer blijft geblokkeerd. Controleer vooraf helper-/automation-ID's en schrijfrechten. Een eventuele herstart valt buiten deze opdracht.
 
-Er is nu niets geïnstalleerd. Controleer voor installatie de back-up, actieve versies, rechten en helper-/automationnaamconflicten. De benodigde nieuwe bestanden zijn `collector.py`, `collector.json` en het afzonderlijke package. Ook de financiële rekenkern en het bestaande energiepackage bevatten ondersteuning voor meetvenstermetadata. Hoofdconfiguratie hoeft alleen een extra package-include te krijgen, zorgvuldig samengevoegd met bestaande packages:
-
-```yaml
-homeassistant:
-  packages:
-    stalman_intervallen: !include packages/energie_intervalcollector.yaml
-```
-
-Installeer of activeer die automation pas nadat de instellingen en koppeling zijn gecontroleerd. Voer eerst HA-configuratiecontrole uit; een eventuele herstart vereist afzonderlijke toestemming. Laat het oorspronkelijke UI-dashboard en integraties intact. De huidige opdracht bevat daarvoor geen toestemming.
-
-## Officiële referenties
-
-- [HA state-object en last_reported](https://www.home-assistant.io/docs/configuration/state_object/)
-- [HA state-machine: onveranderde waarden kunnen opnieuw rapporteren](https://contributors.home-assistant.io/core/internals/states/)
-- [Shell Command: templates, argumenten, response en timeout](https://www.home-assistant.io/integrations/shell_command/)
+Officiële achtergrond: [HA state-object](https://www.home-assistant.io/docs/configuration/state_object/), [state-machine en last_reported](https://contributors.home-assistant.io/core/internals/states/) en [Shell Command](https://www.home-assistant.io/integrations/shell_command/).

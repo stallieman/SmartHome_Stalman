@@ -17,7 +17,7 @@ automation:
     event: start
     id: startup
   - trigger: time_pattern
-    seconds: '0'
+    seconds: /10
     id: sample
   - trigger: state
     entity_id: sensor.p1_meter_tarief
@@ -37,11 +37,11 @@ automation:
         \ 'sensor.marstek_venus_e_5_12kwh_3nd_gen_simulated_sensor_p1_meter_energie_export', 'sensor.p1_meter_tarief']\
         \ %}\n  {% set s = states[entity] %}\n  {% if s is defined and s is not none %}\n    {% set item = {'state':\
         \ s.state, 'unit': s.attributes.get('unit_of_measurement'),\n                   'last_reported': s.last_reported.isoformat(),\
-        \ 'last_changed': s.last_changed.isoformat(),\n                   'last_reset': s.attributes.get('last_reset'),\
-        \ 'restored': s.attributes.get('restored', false)} %}\n  {% else %}\n    {% set item = {'state': 'unavailable',\
-        \ 'restored': true} %}\n  {% endif %}\n  {% set ns.items = ns.items + [(entity, item)] %}\n{% endfor %}\n\
-        {{ {'captured_at': now().isoformat(), 'session': states('input_text.stalman_finance_session'), 'states':\
-        \ dict(ns.items)} }}"
+        \ 'last_updated': s.last_updated.isoformat(), 'last_changed': s.last_changed.isoformat(),\n            \
+        \       'last_reset': s.attributes.get('last_reset'), 'restored': s.attributes.get('restored', false)} %}\n\
+        \  {% else %}\n    {% set item = {'state': 'unavailable', 'restored': true} %}\n  {% endif %}\n  {% set\
+        \ ns.items = ns.items + [(entity, item)] %}\n{% endfor %}\n{{ {'captured_at': now().isoformat(), 'session':\
+        \ states('input_text.stalman_finance_session'), 'states': dict(ns.items)} }}"
   - action: shell_command.stalman_finance_collect
     data:
       snapshot: '{{ snapshot }}'

@@ -38,3 +38,9 @@ Dit is een offline structuur- en templatecontrole, geen volledige Home Assistant
 ## Intervalverzamelaar · 2026-10-31
 
 61 unittests slagen (bestaande financiën plus collector): tellerdelta's, normaal/dal-toewijzing, idempotentie, conflicterende duplicaten, ontbrekende intervallen, onbeschikbare en niet-opnieuw-gerapporteerde states, resets, HA-/procesherstart, tariefwissels, timestampkwaliteit, plausibiliteitsgrenzen, zomer-/wintertijd, configuratiewijzigingen, atomaire export en invoer voor de financiële rekenkern. Collector-YAML, native snapshot-template, ontbrekende-statepad en shell-argumentcodering zijn apart offline gecontroleerd. Alle testmetingen zijn synthetisch en staan buiten productieopslag. Geen servercontact, HA-schema-validatie of runtimecontrole uitgevoerd.
+
+## Bronbewuste revisie na live onderzoek
+
+De oorspronkelijke eis van recente timestamps voor alle tellers is vervangen door onafhankelijke P1-/simulatorwaarnemingen. Het read-only broncode- en API-onderzoek bevestigt dat de geïnstalleerde simulator geen verwerkte P1-meetperiode publiceert. Financiële collector-export is daarom onvoorwaardelijk geblokkeerd; een handmatige vlag kan dat niet omzeilen. De regressietest vergelijkt rechtstreeks met `6fa804e`: oude statische exporttimestamps worden nu bruikbaar bewaard naast actieve import, zonder onterechte financiële koppeling. Zie INTERVAL_COLLECTOR.md. Productiedata of tokens zijn niet opgeslagen.
+
+Resultaat bronbewuste revisie: 58 unittests geslaagd, plus beide offline YAML-/templatevalidators en `git diff --check`. Geen serverwijziging, herstart of push.
