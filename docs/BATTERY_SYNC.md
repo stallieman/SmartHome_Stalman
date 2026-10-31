@@ -4,9 +4,9 @@
 
 De ongewijzigde simulator kan geen aantoonbaar gesynchroniseerde financiële vergelijking leveren. Een lokale, versiegebonden **audituitbreiding als voorstel** is uitgewerkt, met een strikte ontvanger en rekenpad voor expliciete meetvensters. De uitbreiding wijzigt geen rekenmethode, capaciteit, efficiëntie, planning of bediening van de simulator.
 
-**Niet klaar voor rechtstreekse productie-installatie.** Eerst is een geïsoleerde Home Assistant-runtimeproef van het voorstel nodig. Alle audittoestemming staat standaard uit. Contractgegevens en de normaal/dal-mapping zijn nog onbevestigd. Er zijn geen eurobedragen voor de actieve installatie vrijgegeven.
+**Niet klaar voor rechtstreekse productie-installatie.** De geïsoleerde Home Assistant-runtime- en modelpariteitsproef slaagt, maar alle audittoestemming staat standaard uit. Contractgegevens en de normaal/dal-mapping zijn nog onbevestigd. Er zijn geen eurobedragen voor de actieve installatie vrijgegeven.
 
-Geen wijzigingen op Ubuntu, geen geïnstalleerde HACS-bestanden aangepast, geen herstart en geen push. Alleen relevante broncode, entity-registermetadata en het `sources`-attribuut zijn read-only onderzocht. Het API-token is uitsluitend in het geheugen voor het read-only verzoek gebruikt.
+Geen wijzigingen op Ubuntu, geen geïnstalleerde HACS-bestanden aangepast, geen productieherstart en geen push. De runtimeproef draaide lokaal in een geïsoleerde HA 2026.10.4-container met netwerk uitgeschakeld, uitsluitend met synthetische waarden en de vastgepinde upstream-bron.
 
 ## 1. Onderzochte versie en bronnen
 
@@ -124,8 +124,23 @@ Met de audituitbreiding zijn langere **aaneengesloten geattesteerde vensters** m
 - Verliezen via gesimuleerde netcounters, kosten met/zonder batterij en blokkering onder jaarlijkse saldering.
 - YAML, template- en veilige argumentcoderingcontroles slagen.
 - Het gepinde echte upstreambestand is lokaal getransformeerd: alle oorspronkelijke method bodies zijn AST-gelijk en de voorgestelde initializer compileert.
+- Twee aanvullende runtime-tests gebruiken de echte Home Assistant Core 2026.10.4-state machine en eventbus, plus de originele en geïnstrumenteerde `SimulatedBatteryHandle` uit dezelfde upstream-bron.
+- De runtime-tests voeren identieke echte `async_reading_handler`- en `update_battery`-paden uit. Alle batterijstatussen en simulatiecounters zijn gelijk; de auditbatch wordt daarna door de echte collector-contract- en financiële functies verwerkt.
+- Getest: uitgestelde verwerking onder de minimuminterval, tarief 1/2, tariefwissel met expliciete herankering, ontbrekende brondata en blokkering van ongeldige bedragen.
 
-De hooktests gebruiken een referentiecallback om uitsluitend transport, onveranderde aanroepen en bewijs te testen; ze claimen **geen** volledige uitvoering van het echte HA-batterijmodel. De volledige oorspronkelijke bron is alleen gebruikt voor hash-, AST- en syntaxcontrole. Een geïsoleerde HA-proef moet callbacks, beschikbaarheid, datum-/tariefgrenzen, schedulerbelasting en modelpariteit nog aantonen.
+De runtimeproef is geïsoleerd en zonder netwerk:
+
+```sh
+docker run --rm --network none \
+  -v "$PWD:/workspace:ro" \
+  -v /pad/naar/battery_sim/custom_components/battery_sim:/upstream:ro \
+  --entrypoint python3 \
+  ghcr.io/home-assistant/home-assistant:2026.10.4 \
+  /workspace/scripts/validate_battery_runtime_parity.py \
+  --source /upstream/__init__.py
+```
+
+De test weigert afwijkende hashes voor `__init__.py`, `const.py` of `helpers.py`. De bestaande hooktests blijven referentiecallbacktests. De runtimeproef start niet de volledige Home Assistant-applicatie of een config-entry/platformsensoropstelling en controleert geen fysieke meters, HACS-updates of hardwaregedrag.
 
 Reproduceren:
 
@@ -138,8 +153,6 @@ python3 -m unittest discover -s tests -v
 
 Voor de aanvullende echte broncontrole, geef een lokale kopie van het vastgepinde upstreambestand mee met `--source /pad/naar/originele/__init__.py`. De validator weigert iedere andere hash en schrijft geen bronbestand.
 
-## 8. Concrete vervolgstap vóór productie
+## 8. Wat nog nodig is vóór productie
 
-Voer in een afzonderlijke HA-testomgeving een modelpariteits- en eventcontinuïteitsproef uit met de voorgestelde vastgepinde auditpatch. Gebruik een andere testconfiguratie en synthetische broncounters; schakel de productiepolicy niet aan. Laat de originele en geïnstrumenteerde berekening dezelfde inputreeks verwerken en vergelijk alle simulatie-uitkomsten.
-
-Pas na die proef: contractgegevens en tariefmapping bevestigen, hardware-beschikbaarheid/heartbeatgedrag controleren, HACS-updatebeheer afspreken, backups/actieve hashes opnieuw controleren en een installatievoorstel ter toestemming voorleggen. De voorgestelde private hooks hebben een onderhoudslast bij HACS-updates. Ze mogen niet automatisch op een andere versie worden toegepast.
+De runtimepariteit is alleen lokaal aangetoond voor de vastgepinde bronversie en synthetische inputs. Bevestig vóór installatie de contractgegevens en tariefmapping, controleer hardware-beschikbaarheid/heartbeatgedrag, bepaal HACS-updatebeheer en controleer backups en actieve bronhashes opnieuw. De voorgestelde private hooks hebben een onderhoudslast bij HACS-updates. Ze mogen niet automatisch op een andere versie worden toegepast. Installatie vereist een afzonderlijke beoordeling en toestemming.

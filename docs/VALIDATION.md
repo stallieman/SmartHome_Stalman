@@ -47,4 +47,10 @@ Resultaat bronbewuste revisie: 58 unittests geslaagd, plus beide offline YAML-/t
 
 ## Synchronisatieonderzoek en auditvoorstel
 
-87 unittests slagen. Drie offline validators slagen voor dashboard, broncollector en auditadapter. De echte upstream-initializer uit v2.9.0 is met de geïnstalleerde SHA256 vergeleken en lokaal getransformeerd; alle oorspronkelijke method bodies blijven AST-gelijk, voorgestelde code compileert. Dit is geen HA-runtime-/physics-pariteitstest. Het auditvoorstel blijft standaard uit, de geïnstalleerde HACS-code is niet aangepast en er is niets op de server gewijzigd. Zie BATTERY_SYNC.md voor resterende productievoorwaarden.
+87 unittests slagen. Drie offline validators slagen voor dashboard, broncollector en auditadapter. De echte upstream-initializer uit v2.9.0 is met de gedocumenteerde geïnstalleerde SHA256 vergeleken en lokaal getransformeerd; alle oorspronkelijke method bodies blijven AST-gelijk, voorgestelde code compileert.
+
+## Geïsoleerde Battery Simulator-runtime · 2026-10-31
+
+Twee aanvullende tests slagen in de officiële Home Assistant 2026.10.4 ARM64-container (`sha256:23f4dfbb69ce76315dbc4de7915504f1c2dcecd7ca2648113a493a385972e133`), met `--network none`. De originele en geïnstrumenteerde upstream v2.9.0-code verwerken dezelfde synthetische Home Assistant state-events. De echte HA-state machine/eventbus, batterijbronhandler, periodieke update en `update_battery` worden uitgevoerd. De modelstatus en gesimuleerde netcounters zijn na elke verwerking identiek. Een geldige auditbatch passeert vervolgens de collectorcontractcontrole en financiële rekenkern; een tariefovergang en onbeschikbare P1-bron geven geen financiële bedragen.
+
+De proef dekt minimuminterval-uitstel, normaal-/daltariefmapping, herankering na tariefwisseling, ontbrekende gegevens en logbare auditfouten. Dit is geen volledige HA-appstart, config-entry-/platformsensorintegratietest, hardwaretest of hercontrole van de actieve HACS-installatie. De auditpolicy blijft uitgeschakeld; productie en geïnstalleerde HACS-bestanden zijn niet gewijzigd.

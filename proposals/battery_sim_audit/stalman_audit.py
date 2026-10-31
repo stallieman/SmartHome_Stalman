@@ -4,10 +4,11 @@ No battery calculations, scheduling, source events or settings are modified.
 This file is NOT an installed custom integration. Audit failures fail closed.
 """
 import hashlib
+import logging
 from pathlib import Path
 from datetime import datetime, timezone
 from datetime import datetime as RealDateTime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from functools import wraps
 from uuid import uuid4
 
@@ -15,6 +16,7 @@ PRODUCER = 'stalman_audit_v1'
 HELPER_SHA256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 UPSTREAM_SHA256 = 'a85306a06262e5d9ec27099b302dd5e9b24c0b3717ce0e547e30f3b381ce32b6'
 EVENT = 'battery_sim_stalman_audit_batch'
+_LOGGER = logging.getLogger(__name__)
 
 
 def dec(value):
@@ -185,6 +187,7 @@ def reanchor(handle):
         audit.batch_start = {k: dict(v) for k, v in audit.endpoints.items()}
         handle._stalman_audit = audit
     except Exception:
+        _LOGGER.exception('Unable to establish a battery audit anchor; financial certification disabled')
         handle._stalman_audit = None
 
 
@@ -199,6 +202,7 @@ def audit_tracking(original):
             handle._stalman_audit = Audit(handle)
             handle._stalman_audit.batch_start = {k: dict(v) for k, v in handle._stalman_audit.endpoints.items()}
         except Exception:
+            _LOGGER.exception('Unable to initialize the battery audit; financial certification disabled')
             handle._stalman_audit = None
         return original(handle, *args, **kwargs)
     return wrapped
@@ -221,6 +225,7 @@ def audit_reading(original):
                 audit.reading(event, before, {'import': handle._accumulated_import_reading,
                                              'export': handle._accumulated_export_reading})
             except Exception:
+                _LOGGER.exception('Battery source event could not be audited; financial certification disabled')
                 audit.taint('invalid, missing or reset source event')
         return result
     return wrapped
@@ -236,6 +241,7 @@ def audit_processing(original):
             try:
                 before = audit.before()
             except Exception:
+                _LOGGER.exception('Battery model baseline could not be audited; financial certification disabled')
                 audit.taint('missing simulated baseline')
         try:
             result = original(handle, *args, **kwargs)
@@ -249,7 +255,9 @@ def audit_processing(original):
             try:
                 audit.completed(before, audit.batch_start)
             except Exception:
+                _LOGGER.exception('Battery audit batch could not be completed or published')
                 audit.taint('audit packet could not be completed or published')
+                reanchor(handle)
         return result
     return wrapped
 
