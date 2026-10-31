@@ -196,19 +196,24 @@ def backup_check(path, root):
     required = {"configuration.yaml", ".storage/core.config_entries", "packages/energie_thuisbatterij.yaml",
                 *[PREFIX + name for name in SOURCE]}
     found = set()
-    with tarfile.open(path, "r:gz") as archive:
-        for member in archive:
-            name = PurePosixPath(member.name)
-            require(not name.is_absolute() and ".." not in name.parts and not member.issym() and not member.islnk(),
-                    "Backup contains unsafe member paths or links.")
-            clean = str(name).removeprefix("./")
-            for relative in required:
-                if clean == relative or clean.endswith("/config/" + relative) or clean == "config/" + relative:
-                    require(relative not in found and member.isfile(), "Ambiguous backup member.")
-                    found.add(relative)
-                    if relative.startswith(PREFIX):
-                        require(digest(archive.extractfile(member).read()) == SOURCE[Path(relative).name],
-                                "Backup source differs from approved original.")
+    try:
+        with tarfile.open(path, "r:gz") as archive:
+            for member in archive:
+                name = PurePosixPath(member.name)
+                require(not name.is_absolute() and ".." not in name.parts and not member.issym() and not member.islnk(),
+                        "Backup contains unsafe member paths or links.")
+                clean = str(name).removeprefix("./")
+                for relative in required:
+                    if clean == relative or clean.endswith("/config/" + relative) or clean == "config/" + relative:
+                        require(relative not in found and member.isfile(), "Ambiguous backup member.")
+                        found.add(relative)
+                        if relative.startswith(PREFIX):
+                            require(digest(archive.extractfile(member).read()) == SOURCE[Path(relative).name],
+                                    "Backup source differs from approved original.")
+    except PermissionError as exc:
+        raise Stop("Confirmed backup is unreadable; backup validation failed.") from exc
+    except OSError as exc:
+        raise Stop("Confirmed backup could not be read; backup validation failed.") from exc
     require(found == required, "Backup is missing required original configuration members.")
     return file_digest(path)
 

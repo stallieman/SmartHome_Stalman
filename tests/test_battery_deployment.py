@@ -295,6 +295,12 @@ class DeploymentTests(unittest.TestCase):
                     path.unlink()
         self.assertFalse(self.args.restore_root.exists())
 
+    def test_unreadable_backup_stops_with_safe_actionable_message(self):
+        with patch.object(d.tarfile, "open", side_effect=PermissionError("private path details")):
+            with self.assertRaisesRegex(d.Stop, "^Confirmed backup is unreadable; backup validation failed\\.$") as caught:
+                d.backup_check(self.backup, self.config)
+        self.assertNotIn("private path details", str(caught.exception))
+
     def test_health_failure_restores_files_and_restarts_container(self):
         self.args.apply = True
         self.args.authorize_runtime_check = True
