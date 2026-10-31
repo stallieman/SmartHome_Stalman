@@ -45,6 +45,60 @@ template:
     availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'') and is_number(state_attr(''sensor.stalman_financiele_vergelijking'',
       ''saving_eur'')) and state_attr(''sensor.stalman_financiele_vergelijking'', ''scope'') == ''billing'' }}'
     state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''saving_eur'') | float(0) }}'
+  - name: Stalman afrekening kosten zonder batterij
+    unique_id: stalman_afrekening_kosten_zonder_batterij
+    default_entity_id: sensor.stalman_afrekening_kosten_zonder_batterij
+    device_class: monetary
+    unit_of_measurement: EUR
+    availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'') and state_attr(''sensor.stalman_financiele_vergelijking'',
+      ''scope'') == ''billing'' and is_number(state_attr(''sensor.stalman_financiele_vergelijking'', ''without_variable_eur''))
+      }}'
+    state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''without_variable_eur'') | float(0) }}'
+    attributes:
+      start: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''start'') }}'
+      end: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''end'') }}'
+      classification: variabele kosten; gemeten P1-basis
+  - name: Stalman afrekening kosten met simulatie
+    unique_id: stalman_afrekening_kosten_met_simulatie
+    default_entity_id: sensor.stalman_afrekening_kosten_met_simulatie
+    device_class: monetary
+    unit_of_measurement: EUR
+    availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'') and state_attr(''sensor.stalman_financiele_vergelijking'',
+      ''scope'') == ''billing'' and is_number(state_attr(''sensor.stalman_financiele_vergelijking'', ''with_variable_eur''))
+      }}'
+    state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''with_variable_eur'') | float(0) }}'
+    attributes:
+      start: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''start'') }}'
+      end: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''end'') }}'
+      classification: variabele kosten; virtuele batterij is simulatie
+  - name: Stalman totaal afrekening zonder batterij
+    unique_id: stalman_totaal_afrekening_zonder_batterij
+    default_entity_id: sensor.stalman_totaal_afrekening_zonder_batterij
+    device_class: monetary
+    unit_of_measurement: EUR
+    availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'') and state_attr(''sensor.stalman_financiele_vergelijking'',
+      ''scope'') == ''billing'' and state_attr(''sensor.stalman_financiele_vergelijking'', ''fixed_costs_status'')
+      == ''confirmed'' and is_number(state_attr(''sensor.stalman_financiele_vergelijking'', ''without_total_eur'')) }}'
+    state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''without_total_eur'') | float(0) }}'
+    attributes:
+      start: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''start'') }}'
+      end: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''end'') }}'
+      fixed_costs_eur: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''fixed_costs_eur'') }}'
+      classification: variabele plus vaste kosten; alleen bij bevestigde vaste kosten
+  - name: Stalman totaal afrekening met simulatie
+    unique_id: stalman_totaal_afrekening_met_simulatie
+    default_entity_id: sensor.stalman_totaal_afrekening_met_simulatie
+    device_class: monetary
+    unit_of_measurement: EUR
+    availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'') and state_attr(''sensor.stalman_financiele_vergelijking'',
+      ''scope'') == ''billing'' and state_attr(''sensor.stalman_financiele_vergelijking'', ''fixed_costs_status'')
+      == ''confirmed'' and is_number(state_attr(''sensor.stalman_financiele_vergelijking'', ''with_total_eur'')) }}'
+    state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''with_total_eur'') | float(0) }}'
+    attributes:
+      start: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''start'') }}'
+      end: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''end'') }}'
+      fixed_costs_eur: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''fixed_costs_eur'') }}'
+      classification: variabele plus vaste kosten; virtuele batterij is simulatie
   - name: Stalman huis vandaag
     unique_id: stalman_huis_vandaag
     default_entity_id: sensor.stalman_huis_vandaag
@@ -167,6 +221,13 @@ command_line:
     - without_eur
     - with_eur
     - saving_eur
+    - without_variable_eur
+    - with_variable_eur
+    - fixed_costs_status
+    - fixed_costs_reason
+    - fixed_costs_eur
+    - without_total_eur
+    - with_total_eur
     - observed_until
     - measured_from
     - coverage_kind

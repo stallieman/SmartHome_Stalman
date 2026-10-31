@@ -1,41 +1,72 @@
 {
   "netting_ends": "2027-01-01",
+  "currency": "EUR",
   "plans": [
     {
-      "id": "essent-contract-nog-te-bevestigen",
+      "id": "essent-2026-current-contract",
+      "scenario_year": 2026,
       "valid_from": null,
       "valid_until": null,
+      "validity_confirmed": false,
       "confirmed": false,
       "cash_basis_confirmed": false,
-      "vat_fraction": null,
+      "vat_fraction": "0.21",
+      "vat_basis": "quoted_import_components_include_vat",
+      "vat_basis_confirmed": false,
+      "vat_basis_note": "Gross component conversion at 21% VAT reproduces the user-provided effective tariffs exactly. Confirm from the contract statement whether the quoted components include VAT before enabling this plan.",
       "delivery_discount_fraction": "0.10",
+      "discount_basis": "variable_delivery_only",
       "import": {
         "normal": {
           "quoted_total": "0.31274",
-          "quote_includes_vat": null,
-          "quote_includes_discount": null,
-          "delivery_ex_vat": null,
-          "energy_tax_ex_vat": null
+          "quote_includes_vat": true,
+          "quote_includes_discount": false,
+          "delivery_ex_vat": "0.1668512396694214876033057851239669421488",
+          "energy_tax_ex_vat": "0.09161157024793388429752066115702479338843",
+          "user_provided_delivery_gross": "0.20189",
+          "user_provided_energy_tax_gross": "0.11085",
+          "expected_effective_rate": "0.292551"
         },
         "offpeak": {
           "quoted_total": "0.30911",
-          "quote_includes_vat": null,
-          "quote_includes_discount": null,
-          "delivery_ex_vat": null,
-          "energy_tax_ex_vat": null
+          "quote_includes_vat": true,
+          "quote_includes_discount": false,
+          "delivery_ex_vat": "0.1638512396694214876033057851239669421488",
+          "energy_tax_ex_vat": "0.09161157024793388429752066115702479338843",
+          "user_provided_delivery_gross": "0.19826",
+          "user_provided_energy_tax_gross": "0.11085",
+          "expected_effective_rate": "0.289284"
         }
       },
-      "export_credit_cash_per_kwh": null,
-      "export_fee_cash_per_kwh": null
+      "export_credit_cash_per_kwh": "0.15",
+      "export_credit_vat_status": "no_vat",
+      "export_fee_cash_per_kwh": null,
+      "export_fee_vat_status": "unconfirmed",
+      "export_fee_schedule": {
+        "complete": false,
+        "cash_basis_confirmed": false,
+        "day_count_basis_confirmed": false,
+        "known_band": {
+          "annual_export_kwh_min_inclusive": 1251,
+          "annual_export_kwh_max_inclusive": 1500,
+          "eur_per_day": "0.48970"
+        }
+      }
     },
     {
-      "id": "essent-vanaf-2027-nog-te-bevestigen",
+      "id": "essent-2027-contract",
+      "scenario_year": 2027,
       "valid_from": "2027-01-01",
       "valid_until": null,
+      "validity_confirmed": false,
       "confirmed": false,
       "cash_basis_confirmed": false,
       "vat_fraction": null,
+      "vat_basis": "unconfirmed_for_2027_import_rates",
+      "vat_basis_confirmed": false,
+      "vat_basis_note": "2027 normal/off-peak import rates and their VAT basis were not provided.",
       "delivery_discount_fraction": "0.10",
+      "discount_basis": "variable_delivery_only",
       "import": {
         "normal": {
           "quoted_total": null,
@@ -53,11 +84,31 @@
         }
       },
       "export_credit_cash_per_kwh": "0.08343",
-      "export_fee_cash_per_kwh": "0.08092"
+      "export_credit_vat_status": "no_vat",
+      "export_fee_cash_per_kwh": "0.08092",
+      "export_fee_vat_status": "unconfirmed"
     }
   ],
+  "fixed_daily_costs": {
+    "valid_from": null,
+    "valid_until": null,
+    "confirmed": false,
+    "validity_confirmed": false,
+    "vat_basis_confirmed": false,
+    "currency": "EUR",
+    "unit": "per_day",
+    "amounts": {
+      "fixed_supply": "0.34490",
+      "network": "1.30365",
+      "energy_tax_reduction": "-1.72317"
+    },
+    "arithmetic_sum_eur_per_day": "-0.07462",
+    "same_for_battery_scenarios": true
+  },
   "historical_reference_only": {
-    "period_label": "jaarrekening 2024-2025; exacte datums onbekend",
+    "period_start": "2024-03-26",
+    "period_end_exclusive": "2025-03-26",
+    "period_label": "jaarrekening 26 maart 2024 t/m 25 maart 2025",
     "import_kwh": 3133,
     "export_kwh": 2366,
     "net_import_kwh": 767

@@ -69,7 +69,7 @@ def evaluate(sensor, values, key):
                        is_state=lambda e, s: values.get(e) == s, is_number=is_number)
     return env.from_string(sensor[key]).render()
 
-home, money = sensors[:2]
+home = next(s for s in sensors if s['unique_id'] == 'stalman_woningvermogen')
 base = 'sensor.marstek_venus_e_5_12kwh_3nd_gen'
 values = {'sensor.p1_meter_vermogen': '-300', 'sensor.stalman_total_output_power': '1200'}
 assert evaluate(home, values, 'availability') == 'True'
@@ -111,7 +111,7 @@ assert len(meters) == 5
 for meter in meters.values():
     assert meter['cycle'] == 'daily' and meter['always_available'] is False
     assert meter['periodically_resetting'] is True
-house_today, money_today = sensors[2:4]
+house_today = next(s for s in sensors if s['unique_id'] == 'stalman_huis_vandaag')
 values = {'sensor.stalman_import_vandaag': '5', 'sensor.stalman_export_vandaag': '3',
           'sensor.stalman_zon_vandaag': '7'}
 assert float(evaluate(house_today, values, 'state')) == 9
@@ -145,6 +145,21 @@ for sensor in [s for s in sensors if s['unique_id'].endswith('vandaag') and s['d
     report_state = 'unavailable'
     assert env.from_string(sensor['availability']).render() == 'False'
 print('PASS: simulation tab and overview structure preserved; daily arithmetic and report freshness checked.')
+
+# Full-settlement variable costs and totals with fixed costs are distinct.
+attrs.update(scope='billing', without_variable_eur='100.00', with_variable_eur='90.00',
+             fixed_costs_status='unavailable', without_total_eur=None, with_total_eur=None)
+report_state = 'ok'
+billing_sensors = {s['unique_id']: s for s in sensors if s['unique_id'].startswith('stalman_afrekening_')
+                   or s['unique_id'].startswith('stalman_totaal_afrekening_')}
+assert env.from_string(billing_sensors['stalman_afrekening_kosten_zonder_batterij']['availability']).render() == 'True'
+assert env.from_string(billing_sensors['stalman_afrekening_kosten_met_simulatie']['availability']).render() == 'True'
+assert env.from_string(billing_sensors['stalman_totaal_afrekening_zonder_batterij']['availability']).render() == 'False'
+attrs.update(fixed_costs_status='confirmed', without_total_eur='150.00', with_total_eur='140.00')
+assert env.from_string(billing_sensors['stalman_totaal_afrekening_zonder_batterij']['availability']).render() == 'True'
+attrs['scope'] = 'window'
+assert env.from_string(billing_sensors['stalman_afrekening_kosten_zonder_batterij']['availability']).render() == 'False'
+print('PASS: billing scenarios distinguish variable costs from confirmed fixed-cost totals.')
 
 # A certified window is deliberately separate from today's/annual costs.
 attrs['scope'] = 'window'

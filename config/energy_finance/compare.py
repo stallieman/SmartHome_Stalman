@@ -46,6 +46,13 @@ def money(value):
 
 def effective_rates(plan):
     require(plan.get('confirmed') is True, 'Contract rates and VAT not confirmed')
+    if 'validity_confirmed' in plan:
+        require(plan['validity_confirmed'] is True, 'Contract rate validity not confirmed')
+    if 'vat_basis_confirmed' in plan:
+        require(plan['vat_basis_confirmed'] is True, 'Contract VAT basis not confirmed')
+    if 'discount_basis' in plan:
+        require(plan['discount_basis'] == 'variable_delivery_only',
+                'Unsupported discount basis')
     require(plan.get('cash_basis_confirmed') is True,
             'Export credit and costs must be confirmed as actual household cash amounts')
     vat = nonnegative(plan.get('vat_fraction'))
@@ -66,6 +73,51 @@ def effective_rates(plan):
                 'Quoted price does not reconcile with delivery, tax, VAT and discount')
         rates[tariff] = (delivery * (1 - discount) + tax) * (1 + vat)
     return rates
+
+
+def fixed_cost_fields(config, observation, start, end, measured_from, observed):
+    unavailable = {
+        'fixed_costs_status': 'unavailable',
+        'fixed_costs_reason': 'Fixed-cost amounts, VAT basis and validity are not confirmed',
+        'fixed_costs_eur': None,
+        'without_total_eur': None,
+        'with_total_eur': None,
+    }
+    fixed = config.get('fixed_daily_costs')
+    if not isinstance(fixed, dict):
+        return unavailable
+    try:
+        require(fixed.get('confirmed') is True, 'Fixed-cost amounts not confirmed')
+        require(fixed.get('validity_confirmed') is True, 'Fixed-cost validity not confirmed')
+        require(fixed.get('vat_basis_confirmed') is True, 'Fixed-cost VAT basis not confirmed')
+        require(fixed.get('currency') == 'EUR' and fixed.get('unit') == 'per_day',
+                'Unsupported fixed-cost currency or unit')
+        require(fixed.get('same_for_battery_scenarios') is True,
+                'Fixed costs must apply equally to both scenarios')
+        valid_from, valid_until = day(fixed.get('valid_from')), day(fixed.get('valid_until'))
+        require(valid_from <= start and valid_until >= end,
+                'Fixed-cost plan does not cover the complete period')
+        full_period_end = datetime.combine(end, datetime.min.time(), ZoneInfo('Europe/Amsterdam'))
+        full_period_start = datetime.combine(start, datetime.min.time(), ZoneInfo('Europe/Amsterdam'))
+        require(observation.get('scope') in ('day', 'billing'),
+                'Fixed costs are not prorated for partial windows')
+        require(measured_from == full_period_start and observed == full_period_end,
+                'Fixed costs require observations covering the complete calendar period')
+        amounts = fixed.get('amounts')
+        require(isinstance(amounts, dict) and bool(amounts), 'Missing fixed-cost components')
+        daily_total = sum((number(value) for value in amounts.values()), Decimal(0))
+        total = daily_total * (end - start).days
+        formatted = money(total)
+        return {
+            'fixed_costs_status': 'confirmed',
+            'fixed_costs_reason': None,
+            'fixed_costs_eur': formatted,
+            'without_total_eur': None,
+            'with_total_eur': None,
+            '_fixed_costs_exact': total,
+        }
+    except (Unavailable, KeyError, TypeError) as exc:
+        return {**unavailable, 'fixed_costs_reason': str(exc)}
 
 
 def calculate(config, observation):
@@ -115,7 +167,7 @@ def calculate(config, observation):
     credit_rate = nonnegative(plan.get('export_credit_cash_per_kwh'))
     fee_rate = None if netting else nonnegative(plan.get('export_fee_cash_per_kwh'))
     result = {'status': 'ok', 'start': str(start), 'end': str(end), 'scope': observation['scope'],
-              'classification': 'schatting op gemeten energie; batterijvariant is simulatie',
+              'classification': 'variabele kostenraming op gemeten energie; batterijscenario is simulatie',
               'netting': netting, 'plan': plan['id'], 'observed_until': observed.isoformat(), 'measured_from': measured_from.isoformat(),
               'coverage_kind': 'contiguous_partial_day' if partial else 'from_midnight'}
     totals = {}
@@ -139,11 +191,21 @@ def calculate(config, observation):
         total = import_cost + fee - credit
         totals[scenario] = total
         result[scenario + '_eur'] = money(total)
+        result[scenario + '_variable_eur'] = money(total)
         result[scenario + '_import_eur'] = money(import_cost)
         result[scenario + '_export_credit_eur'] = money(credit)
         result[scenario + '_export_costs_eur'] = money(fee)
     # Round only at output, not intermediate tariff/energy calculations.
     result['saving_eur'] = money(totals['without'] - totals['with'])
+    fixed = fixed_cost_fields(config, observation, start, end, measured_from, observed)
+    if fixed['fixed_costs_status'] == 'confirmed':
+        fixed_exact = fixed.pop('_fixed_costs_exact')
+        fixed['without_total_eur'] = money(totals['without'] + fixed_exact)
+        fixed['with_total_eur'] = money(totals['with'] + fixed_exact)
+    else:
+        fixed['without_total_eur'] = None
+        fixed['with_total_eur'] = None
+    result.update(fixed)
     return result
 
 
@@ -152,7 +214,11 @@ def report(config, observation):
         return calculate(config, observation)
     except (Unavailable, KeyError, TypeError) as exc:
         return {'status': 'unavailable', 'reason': str(exc),
-                'without_eur': None, 'with_eur': None, 'saving_eur': None}
+                'without_eur': None, 'with_eur': None,
+                'without_variable_eur': None, 'with_variable_eur': None,
+                'saving_eur': None, 'fixed_costs_status': 'unavailable',
+                'fixed_costs_reason': 'Variable cost calculation is unavailable',
+                'fixed_costs_eur': None, 'without_total_eur': None, 'with_total_eur': None}
 
 
 def main():
@@ -164,7 +230,11 @@ def main():
         result = report(json.loads(args.config.read_text()), json.loads(args.input.read_text()))
     except (OSError, ValueError) as exc:
         result = {'status': 'unavailable', 'reason': str(exc),
-                  'without_eur': None, 'with_eur': None, 'saving_eur': None}
+                  'without_eur': None, 'with_eur': None,
+                  'without_variable_eur': None, 'with_variable_eur': None,
+                  'saving_eur': None, 'fixed_costs_status': 'unavailable',
+                  'fixed_costs_reason': 'Variable cost calculation is unavailable',
+                  'fixed_costs_eur': None, 'without_total_eur': None, 'with_total_eur': None}
     print(json.dumps(result, ensure_ascii=False))
 
 

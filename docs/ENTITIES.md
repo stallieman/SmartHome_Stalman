@@ -27,6 +27,10 @@ Gericht gecontroleerd via SSH op 2026-10-30. Registervermelding bevestigt geen a
 | `sensor.p1_meter_energie_import` | kWh | Bestaand · ingeschakeld |
 | `sensor.p1_meter_vermogen` | W | Bestaand · ingeschakeld |
 | `sensor.stalman_besparingsscenario` | EUR | Nieuw lokaal package |
+| `sensor.stalman_afrekening_kosten_zonder_batterij` | EUR | Variabele kosten van bevestigde volledige afrekenperiode |
+| `sensor.stalman_afrekening_kosten_met_simulatie` | EUR | Variabele kosten met virtuele batterij, zelfde afrekenperiode |
+| `sensor.stalman_totaal_afrekening_zonder_batterij` | EUR | Variabele plus vaste kosten, alleen als vaste gegevens bevestigd zijn |
+| `sensor.stalman_totaal_afrekening_met_simulatie` | EUR | Variabele plus vaste kosten met simulatie, geen verschil in vaste kosten |
 | `sensor.stalman_total_energieopbrengst_levenslang` | kWh | Bestaand · ingeschakeld |
 | `sensor.stalman_total_energy_today` | kWh | Bestaand · ingeschakeld |
 | `sensor.stalman_total_output_power` | W | Bestaand · ingeschakeld |
@@ -54,7 +58,7 @@ Deze entiteiten worden pas bij installatie van het bijgewerkte package aangemaak
 | `sensor.stalman_kosten_zonder_batterij_vandaag` | EUR | Schatting op gemeten energie, maximaal 15 minuten oude invoer |
 | `sensor.stalman_kosten_met_batterij_vandaag` | EUR | Simulatie op dezelfde meetperiode |
 
-`stalman_batterijbesparing_vandaag` gebruikt nu het verschil tussen beide berekeningen; `stalman_besparingsscenario` toont uitsluitend een volledige afrekenperiode. De oude tariefhelpers zijn behouden voor compatibiliteit maar worden niet meer gebruikt voor geldberekeningen. Zie FINANCE.md.
+`stalman_batterijbesparing_vandaag` gebruikt nu het verschil tussen beide berekeningen; `stalman_besparingsscenario` toont uitsluitend een volledige afrekenperiode. Afrekenkosten zijn uitgesplitst in variabel en totaal; totalen blijven onbeschikbaar zolang vaste bedragen, btw-basis of looptijd onbekend zijn. De vaste kosten tellen niet mee als batterijbesparing. De oude tariefhelpers zijn behouden voor compatibiliteit maar worden niet meer gebruikt voor geldberekeningen. Zie FINANCE.md.
 
 ## Voorgesteld atomair auditmeetvenster (standaard uit)
 

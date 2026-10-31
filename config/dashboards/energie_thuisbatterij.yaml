@@ -370,6 +370,24 @@ views:
         action: more-info
       icon: mdi:calculator
       color: green
+    - type: entities
+      title: Volledige afrekening · geselecteerd jaar
+      show_header_toggle: false
+      entities:
+      - entity: sensor.stalman_afrekening_kosten_zonder_batterij
+        name: Variabele kosten · zonder batterij
+      - entity: sensor.stalman_afrekening_kosten_met_simulatie
+        name: Variabele kosten · met simulatie
+      - entity: sensor.stalman_besparingsscenario
+        name: Verschil · variabele kosten
+      - entity: sensor.stalman_totaal_afrekening_zonder_batterij
+        name: Totale kosten incl. vaste kosten · zonder batterij
+      - entity: sensor.stalman_totaal_afrekening_met_simulatie
+        name: Totale kosten incl. vaste kosten · met simulatie
+    - type: markdown
+      content: Een afrekening gebruikt de contract- en meetperiode uit de financiële invoer. Vaste kosten worden
+        alleen aan totalen toegevoegd als bedrag, btw-basis en geldigheidsduur bevestigd zijn; ze worden nooit
+        als batterijbesparing geteld. De Marstek-uitkomst blijft een simulatie.
     - type: markdown
       content: '**Terugverdientijd: nog niet beschikbaar.**'
     - type: entities

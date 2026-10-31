@@ -1,6 +1,7 @@
 """Synthetic test data only; no tariffs or daily observations for production."""
 import importlib.util
 import copy
+import json
 import unittest
 from pathlib import Path
 
@@ -35,12 +36,153 @@ class FinanceTests(unittest.TestCase):
         self.assertEqual(f.effective_rates(self.plan)['normal'], f.Decimal('.3388'))
         self.assertNotEqual(f.effective_rates(self.plan)['normal'], f.Decimal('.363') * f.Decimal('.9'))
 
+    def test_user_2026_tariffs_reconcile_without_double_vat_or_discount(self):
+        config_path = Path(__file__).resolve().parents[1] / 'config/energy_finance/tariffs.json'
+        config = json.loads(config_path.read_text())
+        plan = copy.deepcopy(config['plans'][0])
+        plan.update(
+            confirmed=True,
+            validity_confirmed=True,
+            vat_basis_confirmed=True,
+            cash_basis_confirmed=True,
+        )
+        rates = f.effective_rates(plan)
+        self.assertEqual(rates['normal'], f.Decimal('.292551'))
+        self.assertEqual(rates['offpeak'], f.Decimal('.289284'))
+        self.assertEqual(
+            (f.Decimal('.20189') * f.Decimal('.90') + f.Decimal('.11085')),
+            rates['normal'],
+        )
+        self.assertEqual(
+            (f.Decimal('.19826') * f.Decimal('.90') + f.Decimal('.11085')),
+            rates['offpeak'],
+        )
+        self.assertNotEqual(rates['normal'], f.Decimal('.292551') * f.Decimal('1.21'))
+
+    def test_2026_billing_nets_once_and_requires_explicit_staffel_amounts(self):
+        config_path = Path(__file__).resolve().parents[1] / 'config/energy_finance/tariffs.json'
+        config = json.loads(config_path.read_text())
+        plan = copy.deepcopy(config['plans'][0])
+        plan.update(
+            valid_from='2026-01-01',
+            valid_until='2027-01-01',
+            confirmed=True,
+            validity_confirmed=True,
+            vat_basis_confirmed=True,
+            cash_basis_confirmed=True,
+        )
+        config['plans'] = [plan]
+        self.obs.update(
+            scope='billing',
+            start='2026-01-01',
+            end='2027-01-01',
+            observed_until='2027-01-01T00:00:00+01:00',
+            billing_period_complete=True,
+        )
+        self.obs['without'].update(
+            import_kwh={'normal': '1000', 'offpeak': '800'},
+            export_kwh='1000',
+            netted_import_kwh={'normal': '600', 'offpeak': '400'},
+            export_charges_confirmed=True,
+            export_charges_eur='100',
+        )
+        self.obs['with'].update(
+            import_kwh={'normal': '500', 'offpeak': '500'},
+            export_kwh='600',
+            netted_import_kwh={'normal': '300', 'offpeak': '300'},
+            export_charges_confirmed=True,
+            export_charges_eur='100',
+        )
+        result = f.report(config, self.obs)
+        self.assertEqual(result['status'], 'ok')
+        self.assertEqual(result['without_eur'], '332.73')
+        self.assertEqual(result['with_eur'], '216.37')
+        self.assertEqual(result['saving_eur'], '116.37')
+        self.assertEqual(result['without_export_credit_eur'], '0.00')
+        self.assertFalse(plan['export_fee_schedule']['complete'])
+
+    def test_current_contract_dates_and_2027_import_rates_remain_blocked(self):
+        config_path = Path(__file__).resolve().parents[1] / 'config/energy_finance/tariffs.json'
+        config = json.loads(config_path.read_text())
+        self.assertFalse(config['plans'][0]['validity_confirmed'])
+        self.assertIsNone(config['plans'][0]['valid_from'])
+        self.assertFalse(config['plans'][0]['vat_basis_confirmed'])
+        self.assertFalse(config['plans'][1]['validity_confirmed'])
+        self.assertIsNone(config['plans'][1]['import']['normal']['quoted_total'])
+        self.assertEqual(config['plans'][1]['export_fee_vat_status'], 'unconfirmed')
+        collector_path = Path(__file__).resolve().parents[1] / 'config/energy_finance/collector.json'
+        collector_config = json.loads(collector_path.read_text())
+        self.assertFalse(collector_config['mapping_confirmed'])
+        self.assertEqual(collector_config['tariff_mapping'], {'1': None, '2': None})
+        config['plans'][0].update(
+            valid_from='2026-01-01',
+            valid_until='2027-01-01',
+            confirmed=True,
+            validity_confirmed=True,
+            cash_basis_confirmed=True,
+        )
+        self.assertFalse(config['plans'][0]['vat_basis_confirmed'])
+        with self.assertRaisesRegex(f.Unavailable, 'VAT basis not confirmed'):
+            f.effective_rates(config['plans'][0])
+        result = f.report(config, self.obs)
+        self.assertEqual(result['status'], 'unavailable')
+        self.assertIsNone(result['saving_eur'])
+
     def test_post_netting_cost_and_losses(self):
         # Import reduction 2 kWh, export reduction 3: loss is already represented.
         r = self.result()
         self.assertEqual(r['without_eur'], '3.23')
         self.assertEqual(r['with_eur'], '2.61')
         self.assertEqual(r['saving_eur'], '0.62')
+        self.assertEqual(r['without_variable_eur'], r['without_eur'])
+
+    def test_confirmed_fixed_daily_costs_are_separate_and_cancel_from_saving(self):
+        self.config['fixed_daily_costs'] = {
+            'valid_from': '2027-01-01',
+            'valid_until': '2028-01-01',
+            'confirmed': True,
+            'validity_confirmed': True,
+            'vat_basis_confirmed': True,
+            'currency': 'EUR',
+            'unit': 'per_day',
+            'same_for_battery_scenarios': True,
+            'amounts': {
+                'fixed_supply': '.34490',
+                'network': '1.30365',
+                'energy_tax_reduction': '-1.72317',
+            },
+        }
+        self.obs['observed_until'] = '2027-01-03T00:00:00+01:00'
+        result = self.result()
+        self.assertEqual(result['fixed_costs_status'], 'confirmed')
+        self.assertEqual(result['fixed_costs_eur'], '-0.07')
+        self.assertEqual(result['without_total_eur'], '3.15')
+        self.assertEqual(result['with_total_eur'], '2.54')
+        self.assertEqual(result['saving_eur'], '0.62')
+
+    def test_fixed_costs_not_prorated_for_partial_window_or_unconfirmed_basis(self):
+        self.config['fixed_daily_costs'] = {
+            'valid_from': '2027-01-01',
+            'valid_until': '2028-01-01',
+            'confirmed': True,
+            'validity_confirmed': True,
+            'vat_basis_confirmed': True,
+            'currency': 'EUR',
+            'unit': 'per_day',
+            'same_for_battery_scenarios': True,
+            'amounts': {'fixed_supply': '.34490'},
+        }
+        self.obs['scope'] = 'window'
+        result = self.result()
+        self.assertEqual(result['fixed_costs_status'], 'unavailable')
+        self.assertIsNone(result['fixed_costs_eur'])
+        self.assertIsNone(result['without_total_eur'])
+        self.assertIn('not prorated', result['fixed_costs_reason'])
+        self.assertEqual(result['status'], 'ok')
+        self.config['fixed_daily_costs']['vat_basis_confirmed'] = False
+        self.obs['scope'] = 'day'
+        result = self.result()
+        self.assertIn('VAT basis not confirmed', result['fixed_costs_reason'])
 
     def test_different_tariffs(self):
         self.plan['import']['offpeak'].update(delivery_ex_vat='.10', quoted_total='.242')
