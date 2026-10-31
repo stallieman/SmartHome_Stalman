@@ -11,10 +11,16 @@
     "tariff": "sensor.p1_meter_tarief"
   },
   "tariff_mapping": {
-    "1": null,
-    "2": null
+    "1": "offpeak",
+    "2": "normal"
   },
-  "mapping_confirmed": false,
+  "mapping_confirmed": true,
+  "tariff_mapping_evidence": {
+    "source": "Home Assistant",
+    "transition_at": "2026-10-30T22:59:50+01:00",
+    "from_code": "2",
+    "to_code": "1"
+  },
   "counter_sum_tolerance_kwh": "0.002",
   "schema_version": 2,
   "max_observation_gap_seconds": 15,

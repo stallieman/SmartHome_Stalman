@@ -59,6 +59,21 @@ class FinanceTests(unittest.TestCase):
         )
         self.assertNotEqual(rates['normal'], f.Decimal('.292551') * f.Decimal('1.21'))
 
+    def test_confirmed_p1_codes_resolve_to_correct_essent_tariffs(self):
+        config_path = Path(__file__).resolve().parents[1] / 'config/energy_finance/tariffs.json'
+        config = json.loads(config_path.read_text())
+        plan = copy.deepcopy(config['plans'][0])
+        plan.update(
+            confirmed=True,
+            validity_confirmed=True,
+            vat_basis_confirmed=True,
+            cash_basis_confirmed=True,
+        )
+        rates = f.effective_rates(plan)
+        mapping = config['p1_tariff_mapping']['codes']
+        self.assertEqual(rates[mapping['1']], f.Decimal('.289284'))
+        self.assertEqual(rates[mapping['2']], f.Decimal('.292551'))
+
     def test_2026_billing_nets_once_and_requires_explicit_staffel_amounts(self):
         config_path = Path(__file__).resolve().parents[1] / 'config/energy_finance/tariffs.json'
         config = json.loads(config_path.read_text())
@@ -104,6 +119,14 @@ class FinanceTests(unittest.TestCase):
     def test_current_contract_dates_and_2027_import_rates_remain_blocked(self):
         config_path = Path(__file__).resolve().parents[1] / 'config/energy_finance/tariffs.json'
         config = json.loads(config_path.read_text())
+        self.assertTrue(config['p1_tariff_mapping']['confirmed'])
+        self.assertEqual(config['p1_tariff_mapping']['codes'], {'1': 'offpeak', '2': 'normal'})
+        self.assertEqual(config['p1_tariff_mapping']['evidence']['from_code'], '2')
+        self.assertEqual(config['p1_tariff_mapping']['evidence']['to_code'], '1')
+        self.assertEqual(
+            config['p1_tariff_mapping']['evidence']['transition_at'],
+            '2026-10-30T22:59:50+01:00',
+        )
         self.assertFalse(config['plans'][0]['validity_confirmed'])
         self.assertIsNone(config['plans'][0]['valid_from'])
         self.assertFalse(config['plans'][0]['vat_basis_confirmed'])
@@ -112,8 +135,8 @@ class FinanceTests(unittest.TestCase):
         self.assertEqual(config['plans'][1]['export_fee_vat_status'], 'unconfirmed')
         collector_path = Path(__file__).resolve().parents[1] / 'config/energy_finance/collector.json'
         collector_config = json.loads(collector_path.read_text())
-        self.assertFalse(collector_config['mapping_confirmed'])
-        self.assertEqual(collector_config['tariff_mapping'], {'1': None, '2': None})
+        self.assertTrue(collector_config['mapping_confirmed'])
+        self.assertEqual(collector_config['tariff_mapping'], config['p1_tariff_mapping']['codes'])
         config['plans'][0].update(
             valid_from='2026-01-01',
             valid_until='2027-01-01',

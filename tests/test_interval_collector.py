@@ -78,11 +78,33 @@ class SourceCollectorTests(unittest.TestCase):
         self.assertEqual(sum(s == 'simulated_marstek' and status == 'counter_changed' for s, status in rows), 1)
         self.assertEqual(self.last('simulated_marstek')[0], 'unchanged_observation')
 
-    def test_default_unconfirmed_mapping_still_collects_raw_codes(self):
+    def test_confirmed_mapping_is_attached_to_raw_tariff_code(self):
         self.seed()
         self.collector.ingest(self.sample(10))
         self.assertEqual(self.last('measured_p1')[3]['tariff_code'], '1')
-        self.assertIsNone(self.last('measured_p1')[3]['tariff_mapping'])
+        self.assertEqual(self.last('measured_p1')[3]['tariff_mapping'], {'1': 'offpeak', '2': 'normal'})
+
+    def test_tariff_transition_2_to_1_keeps_confirmed_tariff_mapping(self):
+        first = self.sample()
+        first['states'][self.config['entities']['tariff']].update(
+            state='2',
+            last_reported=self.time.isoformat(),
+            last_updated=self.time.isoformat(),
+            last_changed=self.time.isoformat(),
+        )
+        self.collector.ingest(first)
+        second = self.sample(10)
+        second['states'][self.config['entities']['tariff']].update(
+            state='1',
+            last_reported=(self.time + timedelta(seconds=10)).isoformat(),
+            last_updated=(self.time + timedelta(seconds=10)).isoformat(),
+            last_changed=(self.time + timedelta(seconds=10)).isoformat(),
+        )
+        result = self.collector.ingest(second)
+        self.assertEqual(result['sources']['measured_p1']['status'], 'counter_changed')
+        measured = self.last('measured_p1')[3]
+        self.assertEqual(measured['tariff_code'], '1')
+        self.assertEqual(measured['tariff_mapping'], {'1': 'offpeak', '2': 'normal'})
 
     def test_manual_pairing_flag_cannot_enable_finance(self):
         self.config['pairing_confirmed'] = True
@@ -294,6 +316,13 @@ class SourceCollectorTests(unittest.TestCase):
         self.assertEqual(result['sources']['measured_p1']['status'], 'counter_changed')
         self.assertEqual(result['sources']['simulated_marstek']['status'], 'unchanged_observation')
         self.assertFalse(self.collector.observations('2027-01-02')['paired_grid_deltas_confirmed'])
+
+    def test_finance_and_collector_tariff_mappings_match(self):
+        finance_config = json.loads((ROOT / 'config/energy_finance/tariffs.json').read_text())
+        self.assertTrue(self.config['mapping_confirmed'])
+        self.assertEqual(self.config['tariff_mapping'], {'1': 'offpeak', '2': 'normal'})
+        self.assertTrue(finance_config['p1_tariff_mapping']['confirmed'])
+        self.assertEqual(finance_config['p1_tariff_mapping']['codes'], self.config['tariff_mapping'])
 
 
 if __name__ == '__main__':

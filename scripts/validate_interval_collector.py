@@ -56,7 +56,9 @@ assert args[0:2] == ['python3', '/config/energy_finance/collector.py']
 assert len(args) == 10
 assert json.loads(unquote(args[-1])) == snapshot
 assert '$(' not in args[-1] and '`' not in args[-1] and "'" not in args[-1]
-assert not config['mapping_confirmed']
+assert config['mapping_confirmed']
+assert config['tariff_mapping'] == {'1': 'offpeak', '2': 'normal'}
+assert config['tariff_mapping_evidence']['transition_at'] == '2026-10-30T22:59:50+01:00'
 assert config['pairing_mode'] == 'blocked_missing_simulator_source_window'
 assert config['schema_version'] == 2
 print('PASS: collector YAML, native snapshot, missing-state handling and shell argument escaping.')

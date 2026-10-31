@@ -4,7 +4,7 @@
 
 De ongewijzigde simulator kan geen aantoonbaar gesynchroniseerde financiële vergelijking leveren. Een lokale, versiegebonden **audituitbreiding als voorstel** is uitgewerkt, met een strikte ontvanger en rekenpad voor expliciete meetvensters. De uitbreiding wijzigt geen rekenmethode, capaciteit, efficiëntie, planning of bediening van de simulator.
 
-**Niet klaar voor rechtstreekse productie-installatie.** De geïsoleerde Home Assistant-runtime- en modelpariteitsproef slaagt, maar alle audittoestemming staat standaard uit. Contractgegevens en de normaal/dal-mapping zijn nog onbevestigd. Er zijn geen eurobedragen voor de actieve installatie vrijgegeven.
+**Niet klaar voor rechtstreekse productie-installatie.** De geïsoleerde Home Assistant-runtime- en modelpariteitsproef slaagt, maar alle audittoestemming staat standaard uit. Contractgegevens blijven onvolledig en de simulator publiceert geen verwerkte P1-meetvensters. De P1 normaal/dal-mapping is inmiddels bevestigd: code 2 = normaal en code 1 = dal, op basis van de Home Assistant-overgang 2 → 1 op 30 oktober 2026 om 22:59:50. Er zijn geen eurobedragen voor de actieve installatie vrijgegeven.
 
 Geen wijzigingen op Ubuntu, geen geïnstalleerde HACS-bestanden aangepast, geen productieherstart en geen push. De runtimeproef draaide lokaal in een geïsoleerde HA 2026.10.4-container met netwerk uitgeschakeld, uitsluitend met synthetische waarden en de vastgepinde upstream-bron.
 

@@ -1,6 +1,19 @@
 {
   "netting_ends": "2027-01-01",
   "currency": "EUR",
+  "p1_tariff_mapping": {
+    "confirmed": true,
+    "codes": {
+      "1": "offpeak",
+      "2": "normal"
+    },
+    "evidence": {
+      "source": "Home Assistant",
+      "transition_at": "2026-10-30T22:59:50+01:00",
+      "from_code": "2",
+      "to_code": "1"
+    }
+  },
   "plans": [
     {
       "id": "essent-2026-current-contract",

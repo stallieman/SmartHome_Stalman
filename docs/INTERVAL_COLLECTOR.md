@@ -29,7 +29,7 @@ Een API-controle van alleen de relevante attributen bevestigde dit: import bevat
 | `measured_p1` | Import/export totaal, tariefregisters 1/2 en actieve tariefcode | Gemeten tellerwaarnemingen |
 | `simulated_marstek` | Gesimuleerde import/export | Virtuele batterij, simulatie |
 
-De entity-ID's staan ongewijzigd in `collector.json`. P1-tariefregisters blijven als codes 1/2 geregistreerd; normaal/dal wordt niet geraden. Onbevestigde mapping verhindert de ruwe registratie niet. Alleen een expliciet bevestigde mapping wordt als metadata meegegeven.
+De entity-ID's staan ongewijzigd in `collector.json`. De P1-tariefmapping is bevestigd via Home Assistant: code `2` is normaal en code `1` is dal. De waargenomen overgang van `2` naar `1` op 30 oktober 2026 om 22:59:50 is als herkomst vastgelegd in zowel `collector.json` als `tariffs.json`. Ruwe waarnemingen bewaren de tariefcode en geven de expliciete mapping als metadata mee. Een tariefwisseling blijft een observatie, geen bewijs dat een simulatorbatch dezelfde periode heeft verwerkt.
 
 Het afzonderlijke HA-package is voorbereid op een snapshot iedere tien seconden, plus HA-start en tariefwijzigingen. Dat is één leesmoment voor transport, **geen gesynchroniseerde meetperiode**. De collector beoordeelt en bewaart elke bron apart. Uitval van de simulator wist de bruikbare P1-reeks niet, en omgekeerd.
 

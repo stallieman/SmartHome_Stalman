@@ -102,8 +102,8 @@ class AuditTests(unittest.TestCase):
         self.h = Handle()
         self.assertEqual(self.h.tracking(), 'tracked')
         self.config = json.loads((ROOT / 'config/energy_finance/collector.json').read_text())
-        self.config.update(mapping_confirmed=True, tariff_mapping={'1':'offpeak','2':'normal'},
-                           audit={'enabled':True,'battery_id':'test-battery','expected_helper_sha256':a.HELPER_SHA256})
+        self.config.update(audit={'enabled':True,'battery_id':'test-battery',
+                                  'expected_helper_sha256':a.HELPER_SHA256})
         rate = {'quoted_total':'.363','quote_includes_vat':True,'quote_includes_discount':False,
                 'delivery_ex_vat':'.20','energy_tax_ex_vat':'.10'}
         self.tariffs = {'netting_ends':'2027-01-01','plans':[{'id':'synthetic', 'valid_from':'2027-01-01',
@@ -224,6 +224,8 @@ class AuditTests(unittest.TestCase):
             consume(self.config,[batch])
 
     def test_normal_and_offpeak_windows(self):
+        tariffs = json.loads((ROOT / 'config/energy_finance/tariffs.json').read_text())
+        self.assertEqual(tariffs['p1_tariff_mapping']['codes'], self.config['tariff_mapping'])
         batch=self.batch()
         for code,key in [('1','offpeak'),('2','normal')]:
             with self.subTest(code=code):

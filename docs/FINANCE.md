@@ -15,6 +15,8 @@ Officiële bronnen:
 
 De door de gebruiker opgegeven bedragen staan nu afzonderlijk in `tariffs.json` als 2026- en 2027-plan. Het historische saldo is uitsluitend vastgelegd als referentie (26-03-2024 t/m 25-03-2025): 3.133 kWh import, 2.366 kWh export en 767 kWh netto import.
 
+De P1-registermapping is bevestigd via Home Assistant: tariefcode `1` is dal en code `2` is normaal. Dit volgt uit de overgang `2` → `1` op 30 oktober 2026 om 22:59:50 en staat in `tariffs.json` en `collector.json`. De collector kan tellerdelta's daardoor aan normaal/dal koppelen. Dit heft de afzonderlijke blokkade voor ontbrekende simulator-verwerkingsvensters niet op.
+
 ### 2026: jaarlijks salderen
 
 De huidige contractregels tellen op:
@@ -69,7 +71,7 @@ De historische referentie 2024–2025 is uitsluitend `3133 − 2366 = 767 kWh`. 
 
 Vul een echte `observations.json` volgens het lege schema, met getallen als decimale strings. `start` is de lokale kalenderdatum inclusief; `end` exclusief. `observed_until` is de laatste gezamenlijke waarneming met tijdzone. Tijdzone voor de vergelijking is Europe/Amsterdam.
 
-- `without.import_kwh.normal/offpeak`: verschillen van de werkelijke P1-telwerken over de meetperiode, niet de absolute meterstanden.
+- `without.import_kwh.normal/offpeak`: verschillen van de werkelijke P1-telwerken over de meetperiode, niet de absolute meterstanden. De collector vertaalt code 2 naar normaal en code 1 naar dal op basis van de bevestigde mapping.
 - `without.export_kwh`: werkelijke teruglevering over diezelfde periode.
 - `with.import_kwh.normal/offpeak` en `with.export_kwh`: verschillen van de gesimuleerde P1-meters, over exact dezelfde periode en tariefmomenten.
 - Bevestig dekking en gelijktijdigheid expliciet met `coverage_confirmed` en `paired_grid_deltas_confirmed`. Resetdagen, ontbrekende intervallen en een andere beginbasis vereisen nieuwe correcte invoer; zet deze vlaggen dan niet aan.
