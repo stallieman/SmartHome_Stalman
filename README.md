@@ -76,5 +76,5 @@ De [intervalverzamelaar](docs/INTERVAL_COLLECTOR.md) koppelt P1- en simulatie-te
 zonder dubbeltellingen. Het aparte HA-package is lokaal voorbereid en nog niet geactiveerd.
 
 Het [synchronisatieonderzoek](docs/BATTERY_SYNC.md) bevat een lokaal, standaard uitgeschakeld
-auditvoorstel voor exacte simulatie-meetvensters. Dit vereist eerst een geïsoleerde HA-runtimeproef
-en is niet klaar voor directe productie-installatie.
+auditvoorstel voor exacte simulatie-meetvensters, gevalideerd met een geïsoleerde HA-runtimeproef.
+Het voorstel is niet geïnstalleerd en is niet klaar voor directe productie-installatie.

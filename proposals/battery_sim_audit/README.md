@@ -7,7 +7,7 @@ Dit is een lokale, versiegebonden instrumentatievoorstel voor upstream Battery S
 - `prepare_patch.py`: weigert onbekende bronhashes en schrijft uitsluitend een nieuwe afzonderlijke kopie.
 - `LICENSE.upstream.txt`: MIT-licentie voor de upstream patchcontext.
 
-Dit voorstel is niet klaar voor directe productie-installatie. Zie [onderzoeksrapport en beperkingen](../../docs/BATTERY_SYNC.md). Een HA-runtimeproef is vereist. Niets hier wordt automatisch door Home Assistant geladen.
+Dit voorstel is niet klaar voor directe productie-installatie. Zie [onderzoeksrapport en beperkingen](../../docs/BATTERY_SYNC.md). Een geïsoleerde HA 2026.10.4-runtimeproef is lokaal geslaagd; dat installeert of activeert niets. Niets hier wordt automatisch door Home Assistant geladen.
 
 Voor een afzonderlijke reviewkopie:
 

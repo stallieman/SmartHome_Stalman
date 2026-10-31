@@ -124,9 +124,10 @@ Met de audituitbreiding zijn langere **aaneengesloten geattesteerde vensters** m
 - Verliezen via gesimuleerde netcounters, kosten met/zonder batterij en blokkering onder jaarlijkse saldering.
 - YAML, template- en veilige argumentcoderingcontroles slagen.
 - Het gepinde echte upstreambestand is lokaal getransformeerd: alle oorspronkelijke method bodies zijn AST-gelijk en de voorgestelde initializer compileert.
-- Twee aanvullende runtime-tests gebruiken de echte Home Assistant Core 2026.10.4-state machine en eventbus, plus de originele en geïnstrumenteerde `SimulatedBatteryHandle` uit dezelfde upstream-bron.
-- De runtime-tests voeren identieke echte `async_reading_handler`- en `update_battery`-paden uit. Alle batterijstatussen en simulatiecounters zijn gelijk; de auditbatch wordt daarna door de echte collector-contract- en financiële functies verwerkt.
-- Getest: uitgestelde verwerking onder de minimuminterval, tarief 1/2, tariefwissel met expliciete herankering, ontbrekende brondata en blokkering van ongeldige bedragen.
+- Zes runtime-tests gebruiken de echte Home Assistant Core 2026.10.4-state machine en eventbus, plus de originele en geïnstrumenteerde `SimulatedBatteryHandle` uit dezelfde upstream-bron.
+- De runtime-tests voeren identieke echte `async_reading_handler`- en `update_battery`-paden uit. Alle batterijstatussen en simulatiecounters zijn gelijk; de auditbatch wordt daarna door de echte SQLite-collector, batchcontractcontrole en financiële rekenkern verwerkt. Identieke auditbatches worden herhaald aangeboden en tellen niet dubbel.
+- Getest: P1-updates elke twee seconden met vertraagde simulatieverwerking en daarna updates elke tien seconden; exact aanvaarde import-/exportevents tegenover P1-registers en simulatiecounters; beide tariefcodes en herankering bij tariefwisseling; onbeschikbare brondata, dubbele events, tellerreset, HA-herstart en generatiegrenzen.
+- Bij dubbele events en resets blijven de originele en geïnstrumenteerde modelresultaten gelijk, maar wordt de financiële koppeling geweigerd. Na een reset/herstart kan uitsluitend een nieuwe expliciete generatie een afzonderlijk venster opleveren; batches uit verschillende generaties worden niet samengevoegd.
 
 De runtimeproef is geïsoleerd en zonder netwerk:
 
@@ -140,7 +141,7 @@ docker run --rm --network none \
   --source /upstream/__init__.py
 ```
 
-De test weigert afwijkende hashes voor `__init__.py`, `const.py` of `helpers.py`. De bestaande hooktests blijven referentiecallbacktests. De runtimeproef start niet de volledige Home Assistant-applicatie of een config-entry/platformsensoropstelling en controleert geen fysieke meters, HACS-updates of hardwaregedrag.
+De test weigert afwijkende hashes voor `__init__.py`, `const.py` of `helpers.py`. De bestaande hooktests blijven referentiecallbacktests. De runtimeproef start niet de volledige Home Assistant-applicatie of een config-entry/platformsensoropstelling en controleert geen fysieke meters, HACS-updates of hardwaregedrag. De synchronisatie is daarmee bewezen voor de vastgepinde instrumentatie en gesynthetiseerde teststromen, niet voor de huidige, ongewijzigde HACS-integratie of productie-installatie. De voorgestelde helperidentiteit is geen cryptografische handtekening; een beheerder die zowel configuratie als audit-events kan wijzigen valt buiten dit bewijs.
 
 Reproduceren:
 

@@ -9,8 +9,10 @@ import sys
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from pathlib import Path
 from shutil import copyfile
+from types import SimpleNamespace
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
@@ -270,6 +272,9 @@ class BatteryRuntimeParityTests(unittest.IsolatedAsyncioTestCase):
             try:
                 for batch in batches:
                     collector.ingest_audit(batch)
+                    self.assertEqual(
+                        collector.ingest_audit(batch)["status"], "duplicate_audit"
+                    )
                 day = datetime.fromisoformat(batches[0]["processing_start"]).astimezone(
                     ZoneInfo("Europe/Amsterdam")
                 ).date()
@@ -277,6 +282,96 @@ class BatteryRuntimeParityTests(unittest.IsolatedAsyncioTestCase):
                 return observation, self.report(self.tariffs, observation)
             finally:
                 collector.close()
+
+    def assert_batch_links_source_counters(self, batch):
+        for role in ("import", "export"):
+            start = Decimal(batch["measured_before"][role])
+            cursor = start
+            event_delta = Decimal(0)
+            for event in batch["accepted_events"]:
+                if event["role"] != role:
+                    continue
+                old = Decimal(event["old"]["counter"])
+                new = Decimal(event["new"]["counter"])
+                self.assertEqual(old, cursor)
+                self.assertGreaterEqual(new, old)
+                cursor = new
+                event_delta += new - old
+            self.assertEqual(cursor, Decimal(batch["measured_after"][role]))
+            self.assertEqual(
+                event_delta,
+                Decimal(batch["measured_after"][role])
+                - Decimal(batch["measured_before"][role]),
+            )
+            for boundary in ("before", "after"):
+                registers = batch[f"tariff_registers_{boundary}"][role]
+                self.assertEqual(
+                    sum(Decimal(value) for value in registers.values()),
+                    Decimal(batch[f"measured_{boundary}"][role]),
+                )
+
+        measured_import = (
+            Decimal(batch["measured_after"]["import"])
+            - Decimal(batch["measured_before"]["import"])
+        )
+        simulated_import = (
+            Decimal(batch["simulated_after"]["import"])
+            - Decimal(batch["simulated_before"]["import"])
+        )
+        measured_export = (
+            Decimal(batch["measured_after"]["export"])
+            - Decimal(batch["measured_before"]["export"])
+        )
+        simulated_export = (
+            Decimal(batch["simulated_after"]["export"])
+            - Decimal(batch["simulated_before"]["export"])
+        )
+        self.assertGreaterEqual(measured_import, 0)
+        self.assertGreaterEqual(simulated_import, 0)
+        self.assertGreaterEqual(measured_export, 0)
+        self.assertGreaterEqual(simulated_export, 0)
+        self.assertLessEqual(simulated_import, measured_import)
+        audited, unmodified = self.handles[1], self.handles[0]
+        for handle in (audited, unmodified):
+            module = handle.__class__.__module__.split(".")[0]
+            constants = importlib.import_module(f"{module}.const")
+            self.assertEqual(
+                str(handle._sensors[constants.GRID_IMPORT_SIM]),
+                batch["simulated_after"]["import"],
+            )
+            self.assertEqual(
+                str(handle._sensors[constants.GRID_EXPORT_SIM]),
+                batch["simulated_after"]["export"],
+            )
+        self.assertEqual(self.snapshots()[0], self.snapshots()[1])
+
+    def assert_observation_matches_batches(self, observation, batches):
+        expected = {
+            scenario: {"import_kwh": {"normal": Decimal(0), "offpeak": Decimal(0)},
+                       "export_kwh": Decimal(0)}
+            for scenario in ("without", "with")
+        }
+        for batch in batches:
+            tariff = self.config["tariff_mapping"][batch["tariff_after"]["code"]]
+            for scenario, counter_set in (("without", "measured"), ("with", "simulated")):
+                for role in ("import", "export"):
+                    delta = Decimal(batch[f"{counter_set}_after"][role]) - Decimal(
+                        batch[f"{counter_set}_before"][role]
+                    )
+                    if role == "import":
+                        expected[scenario]["import_kwh"][tariff] += delta
+                    else:
+                        expected[scenario]["export_kwh"] += delta
+        for scenario in ("without", "with"):
+            for tariff in ("normal", "offpeak"):
+                self.assertEqual(
+                    Decimal(observation[scenario]["import_kwh"][tariff]),
+                    expected[scenario]["import_kwh"][tariff],
+                )
+            self.assertEqual(
+                Decimal(observation[scenario]["export_kwh"]),
+                expected[scenario]["export_kwh"],
+            )
 
     async def test_real_state_events_model_parity_tariff_windows_and_finance(self):
         await self.start_runtime()
@@ -306,6 +401,7 @@ class BatteryRuntimeParityTests(unittest.IsolatedAsyncioTestCase):
         first = self.packets[-1]
         self.assertTrue(first["valid"])
         self.assertEqual(len(first["accepted_events"]), 4)
+        self.assert_batch_links_source_counters(first)
         observed, result = self.collect_and_report([first])
         self.assertEqual(observed["without"]["import_kwh"]["offpeak"], "2")
         self.assertEqual(result["status"], "ok")
@@ -322,6 +418,7 @@ class BatteryRuntimeParityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.snapshots()[0], self.snapshots()[1])
         transition = self.packets[-1]
         self.assertTrue(transition["valid"])
+        self.assert_batch_links_source_counters(transition)
         blocked_observation, blocked = self.collect_and_report([first, transition])
         self.assertFalse(blocked_observation["coverage_confirmed"])
         self.assertIsNone(blocked_observation["without"])
@@ -333,10 +430,12 @@ class BatteryRuntimeParityTests(unittest.IsolatedAsyncioTestCase):
         await self.process(BASE + timedelta(seconds=180))
         normal = self.packets[-1]
         self.assertTrue(normal["valid"])
+        self.assert_batch_links_source_counters(normal)
         self.assertEqual(normal["sequence"], 1)
         self.assertNotEqual(normal["generation"], transition["generation"])
         observed, result = self.collect_and_report([normal])
         self.assertEqual(observed["without"]["import_kwh"]["normal"], "1")
+        self.assert_observation_matches_batches(observed, [normal])
         self.assertEqual(result["status"], "ok")
         self.assertEqual(self.snapshots()[0], self.snapshots()[1])
 
@@ -348,6 +447,144 @@ class BatteryRuntimeParityTests(unittest.IsolatedAsyncioTestCase):
             generation_before_restart,
             self.handles[1]._stalman_audit.generation,
         )
+
+    async def test_variable_p1_cadence_and_delayed_processing_preserve_exact_windows(self):
+        await self.start_runtime()
+
+        for index in range(1, 13):
+            self.now = BASE + timedelta(seconds=index * 2)
+            await self.set_counter(
+                "real_import",
+                100 + index / 4,
+                ("import", "1", 100 + index / 4),
+            )
+            await self.set_counter(
+                "real_export",
+                20 + index / 8,
+                ("export", "1", 20 + index / 8),
+            )
+            if index == 2:
+                await self.process(BASE + timedelta(seconds=4))
+                self.assertEqual(self.packets, [])
+        await self.process(BASE + timedelta(seconds=60))
+        first = self.packets[-1]
+        self.assertTrue(first["valid"])
+        self.assertEqual(len(first["accepted_events"]), 24)
+        self.assert_batch_links_source_counters(first)
+        observation, result = self.collect_and_report([first])
+        self.assertTrue(observation["coverage_confirmed"])
+        self.assertEqual(
+            Decimal(observation["without"]["import_kwh"]["offpeak"]), Decimal("3")
+        )
+        self.assertEqual(Decimal(observation["without"]["export_kwh"]), Decimal("1.5"))
+        self.assert_observation_matches_batches(observation, [first])
+        self.assertEqual(result["status"], "ok")
+
+        prior_import = 103
+        prior_export = 21.5
+        batches = [first]
+        for index in range(1, 7):
+            self.now = BASE + timedelta(seconds=60 + index * 10)
+            next_import = prior_import + 0.25
+            next_export = prior_export + 0.125
+            await self.set_counter(
+                "real_import", next_import, ("import", "1", next_import)
+            )
+            await self.set_counter(
+                "real_export", next_export, ("export", "1", next_export)
+            )
+            await self.process(self.now)
+            batch = self.packets[-1]
+            self.assertTrue(batch["valid"])
+            self.assertEqual(batch["sequence"], index + 1)
+            self.assert_batch_links_source_counters(batch)
+            batches.append(batch)
+            prior_import, prior_export = next_import, next_export
+
+        observation, result = self.collect_and_report(batches)
+        self.assertTrue(observation["coverage_confirmed"])
+        self.assertEqual(
+            Decimal(observation["without"]["import_kwh"]["offpeak"]), Decimal("4.5")
+        )
+        self.assertEqual(
+            Decimal(observation["without"]["export_kwh"]), Decimal("2.25")
+        )
+        self.assert_observation_matches_batches(observation, batches)
+        self.assertEqual(result["status"], "ok")
+
+    async def test_duplicate_state_event_taints_audit_without_model_divergence(self):
+        await self.start_runtime()
+        entity = self.config["entities"]["real_import"]
+        old_state = self.hass.states.get(entity)
+        self.now = BASE + timedelta(seconds=10)
+        await self.set_counter("real_import", 101, ("import", "1", 101))
+        new_state = self.hass.states.get(entity)
+        duplicate = SimpleNamespace(
+            data={"entity_id": entity, "old_state": old_state, "new_state": new_state}
+        )
+        with self.assertLogs("battery_sim_audited.stalman_audit", level="ERROR"):
+            for handle in self.handles:
+                handle.async_reading_handler(duplicate)
+
+        await self.process(BASE + timedelta(seconds=60))
+        self.assertEqual(self.snapshots()[0], self.snapshots()[1])
+        self.assertEqual(len(self.packets), 1)
+        self.assertFalse(self.packets[0]["valid"])
+        observation, result = self.collect_and_report(self.packets)
+        self.assertFalse(observation["coverage_confirmed"])
+        self.assertIsNone(observation["without"])
+        self.assertEqual(result["status"], "unavailable")
+        self.assertIsNone(result["saving_eur"])
+
+    async def test_p1_reset_invalidates_window_then_reanchors_fresh_window(self):
+        await self.start_runtime()
+        self.now = BASE + timedelta(seconds=10)
+        await self.set_counter("real_import", 0, ("import", "1", 0))
+        await self.process(BASE + timedelta(seconds=60))
+        reset_batch = self.packets[-1]
+        self.assertFalse(reset_batch["valid"])
+        self.assertEqual(self.snapshots()[0], self.snapshots()[1])
+
+        self.now = BASE + timedelta(seconds=70)
+        await self.set_counter("real_import", 1, ("import", "1", 1))
+        await self.process(BASE + timedelta(seconds=120))
+        recovered = self.packets[-1]
+        self.assertTrue(recovered["valid"])
+        self.assertEqual(recovered["sequence"], 1)
+        self.assertNotEqual(reset_batch["generation"], recovered["generation"])
+        self.assert_batch_links_source_counters(recovered)
+
+        observation, result = self.collect_and_report([reset_batch, recovered])
+        self.assertTrue(observation["coverage_confirmed"])
+        self.assertEqual(observation["without"]["import_kwh"]["offpeak"], "1")
+        self.assert_observation_matches_batches(observation, [recovered])
+        self.assertEqual(result["status"], "ok")
+
+    async def test_home_assistant_restart_does_not_join_audit_generations(self):
+        await self.start_runtime()
+        self.now = BASE + timedelta(seconds=10)
+        await self.set_counter("real_import", 101, ("import", "1", 101))
+        await self.process(BASE + timedelta(seconds=60))
+        before_restart = self.packets[-1]
+        self.assertTrue(before_restart["valid"])
+
+        await self.stop_runtime()
+        self.now = BASE + timedelta(seconds=120)
+        await self.start_runtime()
+        self.now = BASE + timedelta(seconds=130)
+        await self.set_counter("real_import", 101, ("import", "1", 101))
+        await self.process(BASE + timedelta(seconds=180))
+        after_restart = self.packets[-1]
+        self.assertTrue(after_restart["valid"])
+        self.assertEqual(after_restart["sequence"], 1)
+        self.assertNotEqual(before_restart["generation"], after_restart["generation"])
+        self.assert_batch_links_source_counters(after_restart)
+
+        observation, result = self.collect_and_report([before_restart, after_restart])
+        self.assertTrue(observation["coverage_confirmed"])
+        self.assertEqual(observation["without"]["import_kwh"]["offpeak"], "1")
+        self.assert_observation_matches_batches(observation, [after_restart])
+        self.assertEqual(result["status"], "ok")
 
     async def test_unavailable_source_fails_closed_without_changing_model(self):
         await self.start_runtime()
