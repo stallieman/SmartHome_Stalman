@@ -42,6 +42,25 @@ CURRENT_RUNTIME_FILES = frozenset({
     "home-assistant.log.fault",
     *RECORDER_SIDECARS,
 })
+SOURCE_COMPONENTS = {
+    "__init__.py": "Battery simulator initializer",
+    "sensor.py": "Battery simulator sensor module",
+    "const.py": "Battery simulator constants module",
+    "helpers.py": "Battery simulator helpers module",
+}
+MANAGED_COMPONENTS = {
+    "configuration.yaml": "Home Assistant configuration",
+    "packages/energie_thuisbatterij.yaml": "Energy package configuration",
+    PREFIX + "__init__.py": "Battery simulator initializer",
+    PREFIX + "stalman_audit.py": "Battery audit helper",
+    "energy_finance/collector.py": "Energy collector module",
+    "energy_finance/batch_contract.py": "Energy batch contract module",
+    "energy_finance/compare.py": "Energy comparison module",
+    "energy_finance/collector.json": "Energy collector policy",
+    "energy_finance/tariffs.json": "Energy tariff policy",
+    "packages/energie_audit_adapter.yaml": "Audit adapter package",
+    "packages/energie_intervalcollector.yaml": "Interval collector package",
+}
 
 
 class Stop(RuntimeError):
@@ -57,12 +76,40 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
-def file_digest(path):
-    require(path.is_file() and not path.is_symlink(), "Expected regular hash input.")
+def require_regular_file(path, component):
+    if path.is_symlink():
+        raise Stop(f"{component}: symlink is not allowed.")
+    try:
+        info = path.stat()
+    except FileNotFoundError as exc:
+        raise Stop(f"{component}: required file is missing.") from exc
+    except PermissionError as exc:
+        raise Stop(f"{component}: file metadata is unreadable.") from exc
+    except OSError as exc:
+        raise Stop(f"{component}: file metadata cannot be inspected.") from exc
+    require(stat.S_ISREG(info.st_mode), f"{component}: expected a regular file, but found another file type.")
+
+
+def open_regular(path, component):
+    require_regular_file(path, component)
+    try:
+        return path.open("rb")
+    except PermissionError as exc:
+        raise Stop(f"{component}: file is unreadable.") from exc
+    except OSError as exc:
+        raise Stop(f"{component}: file cannot be opened safely.") from exc
+
+
+def file_digest(path, component="Hash input"):
     value = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            value.update(chunk)
+    with open_regular(path, component) as stream:
+        try:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                value.update(chunk)
+        except PermissionError as exc:
+            raise Stop(f"{component}: file is unreadable.") from exc
+        except OSError as exc:
+            raise Stop(f"{component}: file cannot be read safely.") from exc
     return value.hexdigest()
 
 
@@ -147,7 +194,8 @@ def filesystem_manifest(root):
             require(path.is_file() and not path.is_symlink(), "Unsupported entry in configuration tree.")
             info = path.stat()
             result[path.relative_to(root).as_posix()] = {
-                "type": "file", "size": info.st_size, "sha256": file_digest(path)}
+                "type": "file", "size": info.st_size,
+                "sha256": file_digest(path, "Current configuration member")}
     return result
 
 
@@ -207,13 +255,33 @@ def yaml_module():
     return yaml
 
 
-def plain_yaml(data):
-    return yaml_module().safe_load(data)
+def json_document(data, component):
+    try:
+        return json.loads(data)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise Stop(f"{component}: JSON parse failed.") from exc
 
 
-def regular(path):
-    require(path.is_file() and not path.is_symlink(), "Expected a regular, non-symlink file.")
-    return path.read_bytes()
+def plain_yaml(data, component="YAML document"):
+    yaml = yaml_module()
+    try:
+        return yaml.safe_load(data)
+    except (UnicodeDecodeError, yaml.YAMLError) as exc:
+        raise Stop(f"{component}: YAML parse failed.") from exc
+
+
+def regular(path, component="Required input"):
+    with open_regular(path, component) as stream:
+        try:
+            return stream.read()
+        except PermissionError as exc:
+            raise Stop(f"{component}: file is unreadable.") from exc
+        except OSError as exc:
+            raise Stop(f"{component}: file cannot be read safely.") from exc
+
+
+def managed_component(relative):
+    return MANAGED_COMPONENTS.get(relative, "Managed deployment file")
 
 
 def safe_tree(root, require_readable=False):
@@ -310,32 +378,39 @@ def runtime_check(args, require_running=None):
 
 
 def battery(root):
-    data = json.loads(regular(root / ".storage/core.config_entries"))
-    entries = [e for e in data["data"]["entries"] if e.get("domain") == "battery_sim"]
-    require(len(entries) == 1 and entries[0].get("entry_id") == ENTRY, "Unexpected battery binding.")
-    entry = entries[0]
-    values = entry["data"]
-    expected = {"size_kwh": 5.12, "max_charge_rate_kw": 2.5, "max_discharge_rate_kw": .8,
-                "charge_efficiency": .91, "discharge_efficiency": .91, "update_frequency": 60}
-    require(all(values.get(k) == v for k, v in expected.items()) and not entry.get("options"),
-            "Battery settings differ from approved Marstek configuration.")
-    require(not values.get("solar_entity_id") and not values.get("solar_energy_sensor"), "Additional solar input unsupported.")
-    inputs = values.get("input_list", [])
-    require(len(inputs) == 2, "Unexpected source count.")
-    for role in ("import", "export"):
-        matches = [i for i in inputs if i.get("sensor_type") == role.title()]
-        require(len(matches) == 1 and matches[0].get("sensor_id") == f"sensor.p1_meter_energie_{role}"
-                and matches[0].get("simulated_sensor") == f"simulated_sensor.p1_meter_energie_{role}"
-                and matches[0].get("tariff_type") == "No tariff information", "Unexpected P1 source configuration.")
+    component = "Home Assistant storage metadata"
+    data = json_document(regular(root / ".storage/core.config_entries", component), component)
+    try:
+        entries = [e for e in data["data"]["entries"] if e.get("domain") == "battery_sim"]
+        require(len(entries) == 1 and entries[0].get("entry_id") == ENTRY, "Unexpected battery binding.")
+        entry = entries[0]
+        values = entry["data"]
+        expected = {"size_kwh": 5.12, "max_charge_rate_kw": 2.5, "max_discharge_rate_kw": .8,
+                    "charge_efficiency": .91, "discharge_efficiency": .91, "update_frequency": 60}
+        require(all(values.get(k) == v for k, v in expected.items()) and not entry.get("options"),
+                "Battery settings differ from approved Marstek configuration.")
+        require(not values.get("solar_entity_id") and not values.get("solar_energy_sensor"),
+                "Additional solar input unsupported.")
+        inputs = values.get("input_list", [])
+        require(len(inputs) == 2, "Unexpected source count.")
+        for role in ("import", "export"):
+            matches = [i for i in inputs if i.get("sensor_type") == role.title()]
+            require(len(matches) == 1 and matches[0].get("sensor_id") == f"sensor.p1_meter_energie_{role}"
+                    and matches[0].get("simulated_sensor") == f"simulated_sensor.p1_meter_energie_{role}"
+                    and matches[0].get("tariff_type") == "No tariff information",
+                    "Unexpected P1 source configuration.")
+    except (AttributeError, KeyError, TypeError) as exc:
+        raise Stop(f"{component}: unexpected JSON structure.") from exc
     return digest(json.dumps(entry, sort_keys=True).encode())
 
 
 def backup_check(path, root):
-    require(path.is_file() and not path.is_symlink(), "Confirmed backup is missing.")
+    component = "Confirmed backup archive"
+    require_regular_file(path, component)
     required = {"configuration.yaml", ".storage/core.config_entries", "packages/energie_thuisbatterij.yaml",
                 *[PREFIX + name for name in SOURCE]}
     try:
-        archive_hash = file_digest(path)
+        archive_hash = file_digest(path, component)
         archived = archive_manifest(path)
         current = filesystem_manifest(root)
     except PermissionError as exc:
@@ -375,15 +450,23 @@ def backup_check(path, root):
 
 
 def transform(source):
+    component = "Repository patch transformer"
     path = ROOT / "proposals/battery_sim_audit/prepare_patch.py"
     module = type(sys)("audit_prepare")
-    exec(compile(regular(path), str(path), "exec"), module.__dict__)
-    return module.transform(source).encode()
+    try:
+        exec(compile(regular(path, component), str(path), "exec"), module.__dict__)
+        return module.transform(source).encode()
+    except (KeyError, SyntaxError, UnicodeError, ValueError) as exc:
+        raise Stop(f"{component}: source transformation failed validation.") from exc
 
 
 def add_includes(raw):
+    component = "Home Assistant configuration"
     yaml = yaml_module()
-    node = yaml.compose(raw)
+    try:
+        node = yaml.compose(raw)
+    except (UnicodeDecodeError, yaml.YAMLError) as exc:
+        raise Stop(f"{component}: YAML parse failed.") from exc
     def mapping(item, name):
         require(isinstance(item, yaml.MappingNode), "Expected block YAML mapping.")
         matches = [v for k, v in item.value if k.value == name]
@@ -396,50 +479,78 @@ def add_includes(raw):
     require(any(k.value == "stalman_energie" and v.tag == "!include"
                 and v.value == "packages/energie_thuisbatterij.yaml" for k, v in packages.value),
             "Unexpected existing energy package include.")
-    lines = raw.decode().splitlines(keepends=True)
+    try:
+        lines = raw.decode().splitlines(keepends=True)
+    except UnicodeDecodeError as exc:
+        raise Stop(f"{component}: YAML text is not valid UTF-8.") from exc
     indent = " " * packages.value[0][0].start_mark.column
     end = packages.value[-1][1].end_mark.line + 1
     lines[end:end] = [f"{indent}stalman_audit: !include packages/energie_audit_adapter.yaml\n",
                       f"{indent}stalman_intervalcollector: !include packages/energie_intervalcollector.yaml\n"]
     result = "".join(lines).encode()
-    yaml.compose(result)
+    try:
+        yaml.compose(result)
+    except yaml.YAMLError as exc:
+        raise Stop(f"{component}: generated YAML parse failed.") from exc
     return result
 
 
 def candidate(args):
     root = args.config
     files = {}
-    original = regular(root / (PREFIX + "__init__.py"))
+    initializer = "Battery simulator initializer"
+    original = regular(root / (PREFIX + "__init__.py"), initializer)
     files[PREFIX + "__init__.py"] = transform(original)
-    files[PREFIX + "stalman_audit.py"] = regular(ROOT / "proposals/battery_sim_audit/stalman_audit.py")
+    files[PREFIX + "stalman_audit.py"] = regular(
+        ROOT / "proposals/battery_sim_audit/stalman_audit.py", "Repository battery audit helper")
     for name in CORE_FILES:
-        files["energy_finance/" + name] = regular(ROOT / "config/energy_finance" / name)
-    policy = json.loads(files["energy_finance/collector.json"])
-    require(policy["audit"]["enabled"] is False and policy["audit"]["battery_id"] == ENTRY
-            and policy["audit"]["expected_helper_sha256"] == digest(files[PREFIX + "stalman_audit.py"]),
-            "Unexpected repository audit policy.")
-    # Audit-only collection is approved by --apply; contract/monetary activation stays off.
-    policy["audit"]["enabled"] = True
+        relative = "energy_finance/" + name
+        files[relative] = regular(ROOT / "config/energy_finance" / name, managed_component(relative))
+    policy_component = "Energy collector policy"
+    policy = json_document(files["energy_finance/collector.json"], policy_component)
+    try:
+        require(policy["audit"]["enabled"] is False and policy["audit"]["battery_id"] == ENTRY
+                and policy["audit"]["expected_helper_sha256"] == digest(files[PREFIX + "stalman_audit.py"]),
+                "Unexpected repository audit policy.")
+        # Audit-only collection is approved by --apply; contract/monetary activation stays off.
+        policy["audit"]["enabled"] = True
+    except (AttributeError, KeyError, TypeError) as exc:
+        raise Stop(f"{policy_component}: unexpected JSON structure.") from exc
     files["energy_finance/collector.json"] = (json.dumps(policy, indent=2) + "\n").encode()
-    tariffs = json.loads(files["energy_finance/tariffs.json"])
-    require(all(p.get("confirmed") is False for p in tariffs["plans"])
-            and tariffs["fixed_daily_costs"].get("confirmed") is False, "Financial activation is not allowed.")
+    tariff_component = "Energy tariff policy"
+    tariffs = json_document(files["energy_finance/tariffs.json"], tariff_component)
+    try:
+        require(all(p.get("confirmed") is False for p in tariffs["plans"])
+                and tariffs["fixed_daily_costs"].get("confirmed") is False,
+                "Financial activation is not allowed.")
+    except (AttributeError, KeyError, TypeError) as exc:
+        raise Stop(f"{tariff_component}: unexpected JSON structure.") from exc
     for name in ("energie_audit_adapter.yaml", "energie_intervalcollector.yaml"):
-        files["packages/" + name] = regular(ROOT / "config/packages" / name)
-    files["configuration.yaml"] = add_includes(regular(root / "configuration.yaml"))
+        relative = "packages/" + name
+        files[relative] = regular(ROOT / "config/packages" / name, managed_component(relative))
+    config_component = "Home Assistant configuration"
+    files["configuration.yaml"] = add_includes(regular(root / "configuration.yaml", config_component))
     yaml = yaml_module()
-    current = plain_yaml(regular(root / "packages/energie_thuisbatterij.yaml"))
-    planned = plain_yaml(regular(ROOT / "config/packages/energie_thuisbatterij.yaml"))
-    require(isinstance(current, dict) and "command_line" not in current, "Unexpected existing financial command sensor.")
-    sensors = {s["unique_id"]: s for block in planned["template"] for s in block.get("sensor", [])
-               if s.get("device_class") == "monetary"}
-    for block in current.get("template", []):
-        for index, sensor in enumerate(block.get("sensor", [])):
-            key = sensor.get("unique_id")
-            if key in sensors:
-                block["sensor"][index] = sensors.pop(key)
-    current.setdefault("template", []).append({"sensor": list(sensors.values())})
-    current["command_line"] = planned["command_line"]
+    package_component = "Active energy package"
+    planned_component = "Repository energy package"
+    current = plain_yaml(regular(root / "packages/energie_thuisbatterij.yaml", package_component),
+                         package_component)
+    planned = plain_yaml(regular(ROOT / "config/packages/energie_thuisbatterij.yaml", planned_component),
+                         planned_component)
+    require(isinstance(current, dict) and "command_line" not in current,
+            "Unexpected existing financial command sensor.")
+    try:
+        sensors = {s["unique_id"]: s for block in planned["template"] for s in block.get("sensor", [])
+                   if s.get("device_class") == "monetary"}
+        for block in current.get("template", []):
+            for index, sensor in enumerate(block.get("sensor", [])):
+                key = sensor.get("unique_id")
+                if key in sensors:
+                    block["sensor"][index] = sensors.pop(key)
+        current.setdefault("template", []).append({"sensor": list(sensors.values())})
+        current["command_line"] = planned["command_line"]
+    except (AttributeError, KeyError, TypeError) as exc:
+        raise Stop("Energy package candidate: unexpected YAML structure.") from exc
     files["packages/energie_thuisbatterij.yaml"] = yaml.safe_dump(current, allow_unicode=True, sort_keys=False).encode()
     for relative in files:
         if relative not in ("configuration.yaml", "packages/energie_thuisbatterij.yaml", PREFIX + "__init__.py"):
@@ -448,10 +559,10 @@ def candidate(args):
     return files
 
 
-def metadata(path):
+def metadata(path, component="Managed deployment file"):
     if not path.exists() and not path.is_symlink():
         return None
-    data = regular(path)
+    data = regular(path, component)
     info = path.stat()
     return {"sha256": digest(data), "mode": stat.S_IMODE(info.st_mode), "uid": info.st_uid, "gid": info.st_gid}
 
@@ -514,7 +625,7 @@ def create_snapshot(config, destination, private_file, private_directory):
     current_manifest = filesystem_manifest(config)
     require(snapshot_manifest == current_manifest,
             "Stopped configuration changed while creating the restore snapshot.")
-    return {"sha256": file_digest(destination),
+    return {"sha256": file_digest(destination, "Restore snapshot archive"),
             "manifest_sha256": manifest_digest(snapshot_manifest), "entries": len(snapshot_manifest)}
 
 
@@ -556,9 +667,11 @@ print(json.dumps({'audit':bool(b.get('valid')),'sequence':b.get('sequence',0),'p
         result = json.loads(command(["docker", "exec", args.container, "python3", "-B", "-c", probe], timeout=15))
         if result.get("audit") and result.get("sequence", 0) > 0 and result.get("paired"):
             require(battery(args.config) == args.battery_fingerprint, "Battery settings changed during deployment.")
-            require(all(file_digest(args.config / PREFIX / n) == value
-                        for n, value in SOURCE.items() if n != "__init__.py"), "Supporting source changed during deployment.")
-            tariffs = json.loads(regular(args.config / "energy_finance/tariffs.json"))
+            require(all(file_digest(args.config / PREFIX / n, SOURCE_COMPONENTS[n]) == value
+                        for n, value in SOURCE.items() if n != "__init__.py"),
+                    "Supporting source changed during deployment.")
+            component = "Installed energy tariff policy"
+            tariffs = json_document(regular(args.config / "energy_finance/tariffs.json", component), component)
             require(all(p.get("confirmed") is False for p in tariffs["plans"]), "Unexpected monetary activation.")
             return
         require(time.monotonic() < deadline, "Audit health not proven. Stop; use explicit rollback after review.")
@@ -583,7 +696,8 @@ except (urllib.error.URLError,TimeoutError):
 
 
 def preflight(args, files=None, require_readable=False):
-    require(regular(args.config / ".HA_VERSION").strip() == b"2026.10.4", "Unexpected HA configuration version.")
+    version = regular(args.config / ".HA_VERSION", "Home Assistant version marker")
+    require(version.strip() == b"2026.10.4", "Unexpected HA configuration version.")
     size = safe_tree(args.config, require_readable=require_readable)
     args.battery_fingerprint = battery(args.config)
     required = max(1024 ** 3, 3 * size + 256 * 1024 ** 2)
@@ -601,8 +715,9 @@ def capture_files(root, names):
     snapshot = {}
     for name in names:
         path = root / name
-        info = metadata(path)
-        snapshot[name] = None if info is None else {"info": info, "data": regular(path)}
+        component = managed_component(name)
+        info = metadata(path, component)
+        snapshot[name] = None if info is None else {"info": info, "data": regular(path, component)}
     return snapshot
 
 
@@ -664,17 +779,19 @@ def install(args):
     require(args.restore_root == RESTORE_ROOT, "Use the fixed private restore root /root/.local/state/stalman-audit.")
     preflight(args, require_readable=args.apply)
     for name, expected in SOURCE.items():
-        require(digest(regular(args.config / PREFIX / name)) == expected, "Installed source hash mismatch.")
+        component = SOURCE_COMPONENTS[name]
+        require(digest(regular(args.config / PREFIX / name, component)) == expected,
+                f"{component}: installed source hash mismatch.")
     backup_evidence = backup_check(args.backup, args.config)
-    original_inputs = {n: metadata(args.config / n) for n in
+    original_inputs = {n: metadata(args.config / n, managed_component(n)) for n in
                        ("configuration.yaml", "packages/energie_thuisbatterij.yaml", PREFIX + "__init__.py")}
     files = candidate(args)
-    require(all(metadata(args.config / n) == v for n, v in original_inputs.items()),
+    require(all(metadata(args.config / n, managed_component(n)) == v for n, v in original_inputs.items()),
             "Files changed while building candidate.")
     require(args.restore_root.is_absolute() and args.restore_root.resolve() == args.restore_root
             and not args.restore_root.is_relative_to(args.config) and not args.restore_root.is_relative_to(ROOT),
             "Restore root must be a real path outside /config and the source repository.")
-    owner = metadata(args.config / "configuration.yaml")
+    owner = metadata(args.config / "configuration.yaml", "Home Assistant configuration")
     config_file = identity(CONFIG_FILE_MODE, owner["uid"], owner["gid"])
     config_directory = identity(CONFIG_DIRECTORY_MODE, owner["uid"], owner["gid"])
     private_file = identity(PRIVATE_FILE_MODE)
@@ -684,7 +801,7 @@ def install(args):
         require_metadata(args.restore_root, private_directory,
                          "Restore root must be private and owned by root.")
     preflight(args, files, require_readable=args.apply)
-    before = {name: metadata(args.config / name) for name in files}
+    before = {name: metadata(args.config / name, managed_component(name)) for name in files}
     planned = {name: state if state is not None else config_file for name, state in before.items()}
     if not args.apply:
         print(f"DRY-RUN: preflight passed; {len(files)} files planned. No writes, stop, validation container or restart.")
@@ -698,7 +815,8 @@ def install(args):
     with open_lock(args.restore_root / ".deployment.lock", private_file, private_directory) as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         preflight(args, files)
-        require(all(metadata(args.config / n) == v for n, v in before.items()), "Configuration changed during preflight.")
+        require(all(metadata(args.config / n, managed_component(n)) == v for n, v in before.items()),
+                "Configuration changed during preflight.")
         point = Path(tempfile.mkdtemp(prefix=datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-"), dir=args.restore_root))
         os.chown(point, private_directory["uid"], private_directory["gid"])
         os.chmod(point, private_directory["mode"])
@@ -721,10 +839,10 @@ def install(args):
         try:
             command(["docker", "stop", "--time", "-1", args.container], timeout=180)
             container(args, running=False)
-            require(all(file_digest(args.config / PREFIX / n) == value for n, value in SOURCE.items()),
-                    "Source changed during staging.")
+            require(all(file_digest(args.config / PREFIX / n, SOURCE_COMPONENTS[n]) == value
+                        for n, value in SOURCE.items()), "Source changed during staging.")
             require(battery(args.config) == args.battery_fingerprint, "Battery configuration changed at shutdown.")
-            require(all(metadata(args.config / n) == v for n, v in before.items()),
+            require(all(metadata(args.config / n, managed_component(n)) == v for n, v in before.items()),
                     "Deployment files changed at shutdown.")
             snapshot = point / "configuration.tar.gz"
             snapshot_evidence = create_snapshot(args.config, snapshot, private_file, private_directory)
@@ -776,14 +894,16 @@ def rollback(args):
             and point.parent.stat().st_uid == os.geteuid() and stat.S_IMODE(point.parent.stat().st_mode) == 0o700,
             "Restore point and its deployment root must be private and owned by root.")
     validate_private_tree(point, private_file, private_directory)
-    manifest = json.loads(regular(point / "manifest.json"))
+    manifest_component = "Restore-point manifest"
+    manifest = json_document(regular(point / "manifest.json", manifest_component), manifest_component)
     require(manifest["config"] == str(args.config) and manifest["image"] == IMAGE
             and manifest["container"] == args.container and manifest["phase"] in ("prepared", "installed", "validated"),
             "Restore point is not applicable.")
     preflight(args)
     require(args.battery_fingerprint == manifest["battery"], "Battery configuration changed; manual review required.")
     snapshot_manifest = archive_manifest(point / "configuration.tar.gz")
-    require(file_digest(point / "configuration.tar.gz") == manifest["snapshot"]["sha256"]
+    require(file_digest(point / "configuration.tar.gz", "Restore snapshot archive")
+            == manifest["snapshot"]["sha256"]
             and manifest_digest(snapshot_manifest) == manifest["snapshot"]["manifest_sha256"]
             and len(snapshot_manifest) == manifest["snapshot"]["entries"], "Restore snapshot is damaged.")
     allowed = {"configuration.yaml", "packages/energie_thuisbatterij.yaml",
@@ -791,19 +911,19 @@ def rollback(args):
                PREFIX + "__init__.py", PREFIX + "stalman_audit.py",
                *["energy_finance/" + n for n in CORE_FILES]}
     require(set(manifest["before"]) == set(manifest["after"]) == allowed, "Unexpected managed restore files.")
-    owner = metadata(args.config / "configuration.yaml")
+    owner = metadata(args.config / "configuration.yaml", "Home Assistant configuration")
     config_directory = identity(CONFIG_DIRECTORY_MODE, owner["uid"], owner["gid"])
     files = {}
     for name, info in manifest["before"].items():
         require(not PurePosixPath(name).is_absolute() and ".." not in PurePosixPath(name).parts,
                 "Unsafe restore path.")
         writable(args.config / name)
-        current = metadata(args.config / name)
+        current = metadata(args.config / name, managed_component(name))
         require((current is None and info is None) or (current is not None and current["sha256"] in
                 (manifest["after"][name], (info or {}).get("sha256"))),
                 "Installed file drift; rollback would overwrite another change.")
         if info:
-            data = regular(point / "originals" / name)
+            data = regular(point / "originals" / name, "Saved original " + managed_component(name))
             require(digest(data) == info["sha256"], "Original restore file is damaged.")
             files[name] = data
     if not args.apply:
@@ -835,8 +955,9 @@ def rollback(args):
                     elif (stage / name).exists():
                         (stage / name).unlink()
                 check_config(stage)
-            require(all(metadata(args.config / n) == observed_files[n]["info"] if observed_files[n]
-                        else metadata(args.config / n) is None for n in observed_files),
+            require(all(metadata(args.config / n, managed_component(n)) == observed_files[n]["info"]
+                        if observed_files[n] else metadata(args.config / n, managed_component(n)) is None
+                        for n in observed_files),
                     "Files changed during rollback validation.")
             if running:
                 command(["docker", "stop", "--time", "-1", args.container], timeout=180)

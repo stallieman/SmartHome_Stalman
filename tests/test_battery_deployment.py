@@ -121,6 +121,86 @@ class DeploymentTests(unittest.TestCase):
         self.assertFalse(self.args.restore_root.exists())
         self.assertEqual(self.calls, [])
 
+    def test_safe_file_diagnostics_distinguish_failure_types_without_paths(self):
+        component = "Synthetic approved component"
+        sensitive = self.base / "private-secret-name"
+        cases = []
+        cases.append(("missing", "required file is missing"))
+        sensitive.mkdir()
+        cases.append(("wrong_type", "expected a regular file, but found another file type"))
+        sensitive.rmdir()
+        sensitive.symlink_to(self.config / "configuration.yaml")
+        cases.append(("symlink", "symlink is not allowed"))
+        sensitive.unlink()
+        sensitive.write_bytes(b"never disclose this content")
+        for kind, expected in cases:
+            with self.subTest(kind=kind):
+                if kind == "missing":
+                    sensitive.unlink(missing_ok=True)
+                elif kind == "wrong_type":
+                    sensitive.unlink(missing_ok=True)
+                    sensitive.mkdir()
+                else:
+                    if sensitive.is_dir():
+                        sensitive.rmdir()
+                    sensitive.unlink(missing_ok=True)
+                    sensitive.symlink_to(self.config / "configuration.yaml")
+                with self.assertRaisesRegex(d.Stop, f"^{component}: {expected}\\.$") as caught:
+                    d.regular(sensitive, component)
+                message = str(caught.exception)
+                self.assertNotIn(str(sensitive), message)
+                self.assertNotIn("private-secret-name", message)
+        sensitive.unlink()
+        sensitive.write_bytes(b"never disclose this content")
+        with patch.object(Path, "open", side_effect=PermissionError("private path detail")):
+            with self.assertRaisesRegex(d.Stop, f"^{component}: file is unreadable\\.$") as caught:
+                d.regular(sensitive, component)
+        self.assertNotIn("private path detail", str(caught.exception))
+        self.assertNotIn("never disclose", str(caught.exception))
+
+    def test_parse_diagnostics_name_component_without_content(self):
+        cases = ((d.json_document, b'{"secret":', "JSON parse failed"),
+                 (d.plain_yaml, b"secret: [", "YAML parse failed"))
+        for parser, payload, expected in cases:
+            with self.subTest(expected=expected):
+                with self.assertRaisesRegex(d.Stop, f"^Approved policy: {expected}\\.$") as caught:
+                    parser(payload, "Approved policy")
+                self.assertNotIn("secret", str(caught.exception))
+
+    def test_dry_run_diagnostics_identify_version_storage_source_and_repository_inputs(self):
+        version = self.config / ".HA_VERSION"
+        version.unlink()
+        with self.assertRaisesRegex(d.Stop, "^Home Assistant version marker: required file is missing\\.$"):
+            d.install(self.args)
+        self.write(".HA_VERSION", b"2026.10.4")
+
+        storage = self.config / ".storage/core.config_entries"
+        storage.write_bytes(b'{"private":')
+        with self.assertRaisesRegex(d.Stop, "^Home Assistant storage metadata: JSON parse failed\\.$"):
+            d.install(self.args)
+        storage.write_bytes(self.originals[".storage/core.config_entries"][0])
+
+        source = self.config / (d.PREFIX + "sensor.py")
+        source.unlink()
+        with self.assertRaisesRegex(d.Stop, "^Battery simulator sensor module: required file is missing\\.$"):
+            d.install(self.args)
+        self.write(d.PREFIX + "sensor.py", self.originals[d.PREFIX + "sensor.py"][0])
+
+        with patch.object(d, "ROOT", self.base / "missing-repository"):
+            with self.assertRaisesRegex(d.Stop, "^Repository battery audit helper: required file is missing\\.$"):
+                d.install(self.args)
+        self.assertEqual(self.calls, [])
+        self.assertFalse(self.args.restore_root.exists())
+
+    def test_dry_run_reports_configuration_yaml_parse_failure(self):
+        self.write("configuration.yaml", b"homeassistant: [private")
+        with tarfile.open(self.backup, "w:gz") as archive:
+            archive.add(self.config, arcname="config")
+        with self.assertRaisesRegex(d.Stop, "^Home Assistant configuration: YAML parse failed\\.$") as caught:
+            d.install(self.args)
+        self.assertNotIn("private", str(caught.exception))
+        self.assertEqual(self.calls, [])
+
     def test_root_dry_run_hashes_complete_storage_without_writes(self):
         names = ("auth", "auth_provider.homeassistant", "core.uuid", "person", "onboarding",
                  "core.restore_state")
@@ -133,9 +213,9 @@ class DeploymentTests(unittest.TestCase):
         seen = set()
         original_digest = d.file_digest
 
-        def record(path):
+        def record(path, component="Hash input"):
             seen.add(Path(path))
-            return original_digest(path)
+            return original_digest(path, component)
 
         with patch.object(d, "file_digest", side_effect=record), contextlib.redirect_stdout(io.StringIO()):
             d.install(self.args)
