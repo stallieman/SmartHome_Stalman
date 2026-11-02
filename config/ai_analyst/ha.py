@@ -234,6 +234,15 @@ def _daily(rows, days, zone, sensor):
                 quality["status"] = "ok"
                 if sensor["kind"] == "measurement":
                     daily.update(min=min(v[1] for v in values), max=max(v[2] for v in values))
+                else:
+                    # Only reached for days whose hourly buckets all validated; hour is the local wall-clock start.
+                    daily["hourly"] = [
+                        {"hour": dt.datetime.fromtimestamp(ts / 1000, zone).hour, "value": buckets[ts][0]}
+                        for ts in range(start, end, HOUR_MS)]
+                    if hours == 24:
+                        # 23- and 25-hour DST days have no comparable 01:00-05:00 window.
+                        daily["night_value"] = math.fsum(
+                            h["value"] for h in daily["hourly"] if 1 <= h["hour"] < 5)
             else:
                 quality["reason"] = "numeric_overflow"
         result.append(daily)
@@ -367,6 +376,11 @@ def collect(config, client, report_date: dt.date) -> dict:
         item = {key: sensor[key] for key in ("id", "label", "unit", "kind", "share_with_ai")}
         item.update(daily[-1])
         item["quality"]["current_status"] = current_status
+        night_value = item.pop("night_value", None)
+        if sensor["kind"] == "total_increasing":
+            item["night"] = {"window": "01:00-05:00", "value": night_value,
+                             "comparison_7d": _comparison(
+                                 [{"value": day.get("night_value")} for day in daily[:-1]], night_value, 7)}
         item["comparison_7d"] = _comparison(daily[:-1], item["value"], 7)
         item["comparison_30d"] = _comparison(daily[:-1], item["value"], 30)
         # A simple, explicitly labelled population-standard-deviation rule.

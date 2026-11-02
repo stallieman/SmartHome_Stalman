@@ -41,7 +41,7 @@ class SyntheticClient:
     def __init__(self, sensors, target):
         self.calls = []
         self.failures = {}
-        self.metadata = [{'statistic_id': s['statistic_id'], 'unit_of_measurement': s['unit'],
+        self.metadata = [{'statistic_id': s['statistic_id'], 'statistics_unit_of_measurement': s['unit'],
                           'has_sum': s['kind'] == 'total_increasing',
                           'has_mean': s['kind'] == 'measurement'} for s in sensors]
         self.states = [{'entity_id': s['entity_id'], 'state': '123',
@@ -312,7 +312,7 @@ class CollectorTests(unittest.TestCase):
                 self.assertIsNone(self.item()['value'])
 
     def test_metadata_units_capabilities_and_missing_metadata(self):
-        for change, expected in [({'unit_of_measurement': 'Wh'}, 'metadata_wrong_unit'),
+        for change, expected in [({'statistics_unit_of_measurement': 'Wh'}, 'metadata_wrong_unit'),
                                  ({'has_sum': False}, 'unsupported_statistics'),
                                  ({'has_sum': 1}, 'unsupported_statistics')]:
             with self.subTest(change=change):
@@ -324,6 +324,24 @@ class CollectorTests(unittest.TestCase):
                 self.assertIsNone(item['value'])
         self.client.metadata = []
         self.assertEqual(self.item()['quality']['reason'], 'metadata_missing')
+
+    def test_metadata_unit_uses_the_field_home_assistant_provides(self):
+        # recorder/list_statistic_ids reports statistics_unit_of_measurement, not unit_of_measurement.
+        self.reset_client()
+        self.assertNotIn('unit_of_measurement', self.client.metadata[0])
+        self.assertEqual(self.item()['quality']['status'], 'ok')
+        # The legacy field name alone is not metadata evidence of the unit.
+        self.client.metadata[0]['unit_of_measurement'] = self.client.metadata[0].pop('statistics_unit_of_measurement')
+        item = self.item()
+        self.assertEqual(item['quality']['reason'], 'metadata_wrong_unit')
+        self.assertIsNone(item['value'])
+        # Missing unit metadata is rejected, never assumed.
+        del self.client.metadata[0]['unit_of_measurement']
+        self.assertEqual(self.item()['quality']['reason'], 'metadata_wrong_unit')
+        # The current-state unit check keeps using the state attribute.
+        self.reset_client()
+        self.client.states[0]['attributes']['unit_of_measurement'] = 'Wh'
+        self.assertEqual(self.item()['quality']['current_status'], 'wrong_unit')
 
     def test_duplicate_metadata_is_unavailable(self):
         self.client.metadata *= 2
@@ -417,6 +435,60 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(item['comparison_30d']['complete_days'], 29)
         self.assertIsNone(item['comparison_30d']['mean'])
         self.assertEqual(item['value'], 24.0)
+
+    def test_hourly_values_and_night_window_come_from_validated_buckets(self):
+        for index, row in enumerate(self.rows[-24:]):
+            row['change'] = 3.0 if index == 2 else 1.0
+        item = self.item()
+        self.assertEqual([h['hour'] for h in item['hourly']], list(range(24)))
+        self.assertEqual(item['hourly'][2], {'hour': 2, 'value': 3.0})
+        self.assertEqual(sum(h['value'] for h in item['hourly']), item['value'])
+        self.assertEqual(item['night']['window'], '01:00-05:00')
+        self.assertEqual(item['night']['value'], 6.0)
+        self.assertEqual(item['night']['comparison_7d']['complete_days'], 7)
+        self.assertEqual(item['night']['comparison_7d']['mean'], 4.0)
+        self.assertEqual(item['night']['comparison_7d']['change_pct'], 50.0)
+        self.assertNotIn('night_value', item)
+
+    def test_incomplete_day_exposes_no_hourly_or_night_values(self):
+        self.rows.pop()
+        item = self.item()
+        self.assertNotIn('hourly', item)
+        self.assertIsNone(item['night']['value'])
+        self.assertIsNone(item['night']['comparison_7d']['change_pct'])
+
+    def test_unavailable_statistics_expose_no_hourly_values(self):
+        self.client.failures['recorder/statistics_during_period'] = ha.HASourceError('synthetic')
+        item = self.item()
+        self.assertNotIn('hourly', item)
+        self.assertIsNone(item['night']['value'])
+
+    def test_dst_days_have_hourly_values_but_no_comparable_night(self):
+        for target, hours in [(dt.date(2026, 3, 29), 23), (dt.date(2026, 10, 25), 25)]:
+            with self.subTest(target=target):
+                self.target = target
+                self.reset_client()
+                item = self.item()
+                self.assertEqual(len(item['hourly']), hours)
+                self.assertIsNone(item['night']['value'])
+
+    def test_night_baseline_requires_comparable_days(self):
+        self.target = dt.date(2026, 10, 26)  # the previous day has 25 hours
+        self.reset_client()
+        comparison = self.item()['night']['comparison_7d']
+        self.assertEqual(comparison['complete_days'], 6)
+        self.assertIsNone(comparison['mean'])
+
+    def test_measurement_sensors_have_no_hourly_or_night(self):
+        self.sensors = [sensor('temperature', 'measurement')]
+        self.reset_client()
+        item = self.item()
+        self.assertNotIn('hourly', item)
+        self.assertNotIn('night', item)
+
+    def test_hourly_validation_is_unchanged_for_bad_buckets(self):
+        self.rows[-5]['change'] = -1.0
+        self.assertNotIn('hourly', self.item())
 
     def test_measurement_hour_weighted_mean_and_extrema(self):
         self.sensors = [sensor('temperature', 'measurement')]
@@ -568,7 +640,7 @@ class DailyCollectorIntegrationTests(unittest.TestCase):
             'TELEGRAM_BOT_TOKEN': '123456:synthetic', 'TELEGRAM_CHAT_ID': '-12345'}, clear=True)
         self.env.start()
         self.addCleanup(self.env.stop)
-        self.finding = 'above_7d'
+        self.topic = 'grid_import_vs_7d'
         self.ai = Mock(side_effect=self.ai_response)
         self.telegram = Mock(return_value={'ok': True, 'result': {'message_id': 123}})
         self.make_client()
@@ -582,13 +654,11 @@ class DailyCollectorIntegrationTests(unittest.TestCase):
         self.assertEqual(url, 'https://api.openai.com/v1/chat/completions')
         self.assertEqual(headers, {'Authorization': 'Bearer synthetic-openai-key'})
         shared = json.loads(payload['messages'][1]['content'])
-        self.assertEqual(shared['date'], self.target.isoformat())
-        self.assertIn(self.finding, shared['sensors'][0]['allowed_patterns'])
-        suggestion = 'check_coverage' if self.finding == 'insufficient_data' else 'monitor'
-        findings = [{'sensor_id': self.config['sensors'][0]['id'],
-                     'pattern': self.finding, 'suggestion': suggestion}]
+        self.assertEqual(shared['datum'], self.target.isoformat())
+        self.assertIn(self.topic, [c['topic'] for c in shared['kandidaten']])
+        text = 'De netafname lag 100% boven het gemiddelde van de afgelopen 7 dagen (24,00 kWh).'
         return {'choices': [{'finish_reason': 'stop', 'message': {
-            'content': json.dumps({'findings': findings})}}],
+            'content': json.dumps({'observations': [{'topic': self.topic, 'text': text}]})}}],
                 'usage': {'prompt_tokens': 1000, 'completion_tokens': 100}}
 
     def run_report(self):
@@ -609,7 +679,8 @@ class DailyCollectorIntegrationTests(unittest.TestCase):
         text = telegram_payload['text']
         for private in ('synthetic-ha-token', 'synthetic-openai-key', 'sensor.', 'DO_NOT_COPY'):
             self.assertNotIn(private, text)
-        self.assertIn('geen bewijs van continue sensorwerking', text)
+        for technical in ('Europe/Amsterdam', 'dekking', 'Controleer', 'bucket', 'sensorwerking', 'AI-analyse'):
+            self.assertNotIn(technical, text)
         return summary['sensors'][0], text
 
     def test_complete_day_real_collector_comparisons_render_and_reach_ai(self):
@@ -624,49 +695,48 @@ class DailyCollectorIntegrationTests(unittest.TestCase):
             self.assertEqual(comparison['mean'], 24.0)
             self.assertEqual(comparison['median'], 24.0)
             self.assertEqual(comparison['change_pct'], 100.0)
-            self.assertIn(f'Vorige {days} dagen gemiddeld: 24; verschil 100%', text)
-        self.assertIn('Netafname: 48 kWh', text)
-        self.assertIn('hoger dan het gemiddelde van de voorgaande zeven dagen', text)
+        self.assertEqual(len(item['hourly']), 24)
+        self.assertEqual(item['night']['value'], 8.0)
+        self.assertEqual(text.splitlines()[0], '⚡ Dagrapport zondag 15 februari 2026')
+        self.assertIn('Netafname: 48,00 kWh', text)
+        self.assertIn('Nacht (01–05 u): 8,00 kWh', text)
+        self.assertIn('Piekuur: 0–1 u (2,00 kWh)', text)
+        self.assertIn('• De netafname lag 100% boven het gemiddelde van de afgelopen 7 dagen (24,00 kWh).', text)
         self.ai.assert_called_once()
         shared = json.loads(self.ai.call_args.args[1]['messages'][1]['content'])
-        shared_item = shared['sensors'][0]
-        self.assertEqual(shared_item['value'], 48.0)
-        self.assertEqual(shared_item['quality']['valid_hours'], 24)
-        self.assertEqual(shared_item['comparison_7d']['change_pct'], 100.0)
-        self.assertEqual(shared_item['comparison_30d']['change_pct'], 100.0)
+        self.assertEqual({c['topic'] for c in shared['kandidaten']}, {'grid_import_vs_7d', 'night_vs_7d'})
         raw = json.dumps(shared)
-        for private in ('entity_id', 'statistic_id', 'attributes', 'sensor.', 'DO_NOT_COPY'):
+        for private in ('entity_id', 'statistic_id', 'attributes', 'sensor.', 'DO_NOT_COPY', 'hourly'):
             self.assertNotIn(private, raw)
         state = json.loads((self.directory / 'state.json').read_text())
         self.assertEqual(state['reports'][self.target.isoformat()]['telegram'], 'sent')
         self.assertEqual(state['ai_days']['2026-02-16']['status'], 'success')
 
-    def assert_dst_day(self, target, hours, percentage):
+    def assert_dst_day(self, target, hours):
         self.target = target
         self.make_client()
-        self.finding = 'stable_7d'
         item, text = self.run_report()
         self.assertEqual(item['value'], float(hours))
         self.assertEqual(item['quality']['expected_hours'], hours)
         self.assertEqual(item['quality']['valid_hours'], hours)
-        self.assertIn(f'Netafname: {hours} kWh', text)
+        self.assertEqual(len(item['hourly']), hours)
+        self.assertIn(f'Netafname: {hours},00 kWh', text)
+        self.assertNotIn('Nacht', text)  # no comparable 01:00-05:00 window on DST days
         for days in (7, 30):
-            self.assertIn(f'Vorige {days} dagen gemiddeld: 24; verschil {percentage}%', text)
             self.assertEqual(item[f'comparison_{days}d']['complete_days'], days)
-        self.ai.assert_called_once()
-        shared = json.loads(self.ai.call_args.args[1]['messages'][1]['content'])
-        self.assertEqual(shared['sensors'][0]['quality']['expected_hours'], hours)
-        self.assertEqual(shared['sensors'][0]['value'], float(hours))
+        # A 4% difference from the baseline is not an observation, so no AI request is needed.
+        self.assertNotIn('•', text)
+        self.ai.assert_not_called()
         summary = json.loads((self.directory / f'summary-{self.target.isoformat()}.json').read_text())
         start = dt.datetime.fromisoformat(summary['period']['start'])
         end = dt.datetime.fromisoformat(summary['period']['end'])
         self.assertEqual((end - start).total_seconds(), hours * 3600)
 
     def test_spring_dst_23_hours_survives_real_pipeline(self):
-        self.assert_dst_day(dt.date(2026, 3, 29), 23, '-4,167')
+        self.assert_dst_day(dt.date(2026, 3, 29), 23)
 
     def test_autumn_dst_25_hours_survives_real_pipeline(self):
-        self.assert_dst_day(dt.date(2026, 10, 25), 25, '4,167')
+        self.assert_dst_day(dt.date(2026, 10, 25), 25)
 
     def test_incomplete_target_does_not_render_partial_sum_or_delta(self):
         self.rows.pop()
@@ -674,14 +744,9 @@ class DailyCollectorIntegrationTests(unittest.TestCase):
         self.assertIsNone(item['value'])
         self.assertEqual(item['quality']['status'], 'incomplete')
         self.assertEqual(item['quality']['valid_hours'], 23)
-        self.assertIn('Netafname: niet beschikbaar kWh', text)
-        self.assertIn('Onvoldoende geldige statistiekdekking; geen conclusie.', text)
-        for days in (7, 30):
-            self.assertEqual(item[f'comparison_{days}d']['complete_days'], days)
-            self.assertIsNone(item[f'comparison_{days}d']['change_pct'])
-            # Historical means are known, but no target delta can be inferred.
-            self.assertIn(f'Vorige {days} dagen gemiddeld: 24; geen procentvergelijking', text)
-        for fabricated in ('Netafname: 23', 'Netafname: 0', 'verschil ', '%'):
+        self.assertNotIn('hourly', item)
+        self.assertEqual(text.splitlines()[-1], 'Geen betrouwbare meetgegevens voor deze dag.')
+        for fabricated in ('Netafname', '23', 'Nacht', '%', 'niet beschikbaar'):
             self.assertNotIn(fabricated, text)
         self.ai.assert_not_called()
 
@@ -689,22 +754,19 @@ class DailyCollectorIntegrationTests(unittest.TestCase):
         for row in self.rows[-24:]:
             row['change'] = 2
         del self.rows[-25]
-        self.finding = 'insufficient_data'
         item, text = self.run_report()
         self.assertEqual(item['value'], 48.0)
-        self.assertIn('Netafname: 48 kWh', text)
+        self.assertIn('Netafname: 48,00 kWh', text)
         for days in (7, 30):
             comparison = item[f'comparison_{days}d']
             self.assertEqual(comparison['complete_days'], days - 1)
             self.assertIsNone(comparison['mean'])
             self.assertIsNone(comparison['change_pct'])
-            self.assertIn(f'Vorige {days} dagen: onvoldoende dekking ({days - 1}/{days} volledig).', text)
-        self.assertNotIn('gemiddeld:', text)
+        # No baseline: neither a comparison nor a notice about the missing baseline.
         self.assertNotIn('%', text)
-        self.assertIn('Controleer beschikbaarheid en statistiekdekking', text)
-        self.ai.assert_called_once()
-        shared = json.loads(self.ai.call_args.args[1]['messages'][1]['content'])
-        self.assertEqual(shared['sensors'][0]['allowed_patterns'], ['insufficient_data'])
+        self.assertNotIn('•', text)
+        self.assertNotIn('gemiddelde', text)
+        self.ai.assert_not_called()
 
     def test_historical_source_failure_renders_unavailable_not_zero(self):
         self.client.failures['recorder/statistics_during_period'] = ha.HASourceError('synthetic source failure')
@@ -712,13 +774,12 @@ class DailyCollectorIntegrationTests(unittest.TestCase):
         self.assertIsNone(item['value'])
         self.assertEqual(item['quality']['status'], 'unavailable')
         self.assertEqual(item['quality']['reason'], 'statistics_source_error')
-        self.assertIn('Netafname: niet beschikbaar kWh', text)
+        self.assertEqual(text.splitlines()[-1], 'Geen betrouwbare meetgegevens voor deze dag.')
         for days in (7, 30):
             self.assertEqual(item[f'comparison_{days}d']['complete_days'], 0)
             self.assertIsNone(item[f'comparison_{days}d']['mean'])
             self.assertIsNone(item[f'comparison_{days}d']['change_pct'])
-            self.assertIn(f'Vorige {days} dagen: onvoldoende dekking (0/{days} volledig).', text)
-        for fabricated in ('Netafname: 0', 'gemiddeld:', 'verschil ', '%', 'synthetic source failure'):
+        for fabricated in ('Netafname', '0,00', 'gemiddeld', '%', 'synthetic source failure'):
             self.assertNotIn(fabricated, text)
         self.ai.assert_not_called()
 

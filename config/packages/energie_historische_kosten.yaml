@@ -1,0 +1,184 @@
+input_text:
+  stalman_historical_importcosts_summary:
+    name: Stalman historische importkosten samenvatting
+    max: 255
+    initial: '{"status":"unavailable"}'
+
+template:
+  - trigger: state
+    entity_id: input_text.stalman_historical_importcosts_summary
+    sensors:
+      stalman_historische_importkosten:
+        name: Stalman historische importkosten
+        unique_id: stalman_historische_importkosten
+        device_class: monetary
+        unit_of_measurement: EUR
+        availability: >-
+          {% set result = states('input_text.stalman_historical_importcosts_summary') | from_json(default={}) %}
+          {% set yesterday = (now().date() - timedelta(days=1)).isoformat() %}
+          {{ result.get('status') == 'ok'
+             and result.get('date') == yesterday
+             and result.get('coverage') == 'complete'
+             and result.get('hours', 0) == result.get('expected', -1)
+             and result.get('expected', 0) > 0
+             and is_number(result.get('eur')) }}
+        state: >-
+          {% set result = states('input_text.stalman_historical_importcosts_summary') | from_json(default={}) %}
+          {{ result.get('eur', 'unavailable') }}
+        attributes:
+          date: >-
+            {% set result = states('input_text.stalman_historical_importcosts_summary') | from_json(default={}) %}
+            {{ result.get('date', 'onbekend') }}
+          normal_kwh: >-
+            {% set result = states('input_text.stalman_historical_importcosts_summary') | from_json(default={}) %}
+            {{ result.get('normal', 'onbekend') }}
+          offpeak_kwh: >-
+            {% set result = states('input_text.stalman_historical_importcosts_summary') | from_json(default={}) %}
+            {{ result.get('offpeak', 'onbekend') }}
+          coverage: >-
+            {% set result = states('input_text.stalman_historical_importcosts_summary') | from_json(default={}) %}
+            {% if result.get('expected', 0) > 0 %}
+              {{ result.get('coverage', 'onbekend') }} · {{ result.get('hours', 0) }}/{{ result.get('expected') }} uur
+            {% else %}
+              {{ result.get('coverage', 'onbekend') }}
+            {% endif %}
+
+automation:
+  - id: stalman_historical_importcosts_daily
+    alias: Stalman historische importkosten dagelijks
+    description: Berekent dagelijks de indicatieve bruto P1-importkosten van gisteren.
+    mode: single
+    triggers:
+      - trigger: time
+        at: "06:15:00"
+    actions:
+      - action: script.stalman_historische_importkosten
+        data:
+          start: "{{ as_local(strptime((now().date() - timedelta(days=1)).isoformat(), '%Y-%m-%d')).isoformat() }}"
+          end: "{{ today_at('00:00').isoformat() }}"
+
+shell_command:
+  stalman_historical_import_costs: >-
+    python3 /config/energy_finance/historical_import_costs.py
+    --config /config/energy_finance/tariffs.json
+    --start-url "{{ start | urlencode }}"
+    --end-url "{{ end | urlencode }}"
+    --measurement-start "2026-10-30T20:36:47+01:00"
+    --plan-id "essent-2026-current-contract"
+    --statistics-url "{{ statistics | to_json | urlencode }}"
+
+script:
+  stalman_historische_importkosten:
+    alias: Stalman historische importkosten indicatief
+    description: Bruto importkosten over volledige P1-uren; geen saldering of batterijvergelijking.
+    mode: single
+    fields:
+      start:
+        name: Begin
+        description: Inclusieve datum of tijd met tijdzone.
+        required: true
+        selector:
+          text:
+      end:
+        name: Einde
+        description: Exclusieve datum of tijd met tijdzone.
+        required: true
+        selector:
+          text:
+    sequence:
+    - action: input_text.set_value
+      target:
+        entity_id: input_text.stalman_historical_importcosts_summary
+      data:
+        value: '{"status":"unavailable"}'
+    - if:
+      - condition: template
+        value_template: >-
+          {% set start_timestamp = as_timestamp(start, none) %}
+          {% set end_timestamp = as_timestamp(end, none) %}
+          {% set start_date_only = start is string and start | length == 10 and start[4:5] == '-' and start[7:8] == '-' %}
+          {% set end_date_only = end is string and end | length == 10 and end[4:5] == '-' and end[7:8] == '-' %}
+          {% set start_has_timezone = start is string and start | length > 10 and (start[-1:] == 'Z' or '+' in start[10:] or '-' in start[10:]) %}
+          {% set end_has_timezone = end is string and end | length > 10 and (end[-1:] == 'Z' or '+' in end[10:] or '-' in end[10:]) %}
+          {{ not (start_timestamp is not none and end_timestamp is not none and end_timestamp > start_timestamp and (start_date_only or start_has_timezone) and (end_date_only or end_has_timezone)) }}
+      then:
+      - stop: Ongeldige periode. Gebruik geldige datums (YYYY-MM-DD) of tijdstippen met tijdzone; eind moet na begin liggen.
+        error: true
+    - if:
+      - condition: template
+        value_template: >-
+          {% set start_timestamp = as_timestamp(start, none) %}
+          {% set end_timestamp = as_timestamp(end, none) %}
+          {% set first_hour = (start_timestamp // 3600) * 3600 %}
+          {% set last_hour = (end_timestamp // 3600) * 3600 %}
+          {% if end_timestamp > last_hour %}
+            {% set last_hour = last_hour + 3600 %}
+          {% endif %}
+          {{ last_hour - first_hour > 1209600 }}
+      then:
+      - stop: Periode te lang. Maximaal 14 dagen historische uurstatistieken per aanvraag.
+        error: true
+    - action: recorder.get_statistics
+      data:
+        start_time: "{{ start }}"
+        end_time: "{{ end }}"
+        statistic_ids:
+        - sensor.p1_meter_energie_import_tarief_1
+        - sensor.p1_meter_energie_import_tarief_2
+        period: hour
+        types:
+        - change
+      response_variable: p1_hourly_statistics
+    - action: shell_command.stalman_historical_import_costs
+      data:
+        start: "{{ start }}"
+        end: "{{ end }}"
+        statistics: "{{ p1_hourly_statistics }}"
+      response_variable: historical_calculation
+    - variables:
+        historical_result: "{{ historical_calculation.stdout | from_json(default={}) }}"
+    - variables:
+        historical_summary: >-
+          {% set expected_date = (today_at('00:00') - timedelta(days=1)).date().isoformat() %}
+          {% set today_date = today_at('00:00').date().isoformat() %}
+          {% set expected_hours = ((as_timestamp(end) - as_timestamp(start)) / 3600) | int %}
+          {% set coverage = historical_result.get('coverage', {}) %}
+          {% set normal = historical_result.get('normal', {}) %}
+          {% set offpeak = historical_result.get('offpeak', {}) %}
+          {% set result_start = historical_result.get('requested_start', '') %}
+          {% set result_end = historical_result.get('requested_end', '') %}
+          {% set complete = historical_result.get('status') == 'ok'
+             and result_start is string and result_start[:10] == expected_date
+             and result_end is string and result_end[:10] == today_date
+             and coverage.get('status') == 'complete'
+             and coverage.get('complete_hours', 0) == expected_hours
+             and expected_hours > 0
+             and is_number(historical_result.get('total_eur'))
+             and is_number(normal.get('kwh'))
+             and is_number(offpeak.get('kwh')) %}
+          {% if complete %}
+            {{ {'status': 'ok', 'date': expected_date, 'eur': historical_result.get('total_eur'),
+                'normal': normal.get('kwh'), 'offpeak': offpeak.get('kwh'),
+                'coverage': 'complete', 'hours': coverage.get('complete_hours'),
+                'expected': expected_hours} | to_json }}
+          {% else %}
+            {{ {'status': 'unavailable', 'date': expected_date,
+                'coverage': 'partial' if coverage.get('status') == 'partial' else 'incomplete',
+                'hours': coverage.get('complete_hours', 0),
+                'expected': expected_hours} | to_json }}
+          {% endif %}
+    - variables:
+        historical_summary_status: >-
+          {% set result = historical_summary if historical_summary is mapping else (historical_summary | from_json(default={})) %}
+          {{ 'ok' if result.get('status') == 'ok' and historical_summary | length <= 255 else 'unavailable' }}
+    - if:
+      - condition: template
+        value_template: "{{ historical_summary | length <= 255 }}"
+      then:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.stalman_historical_importcosts_summary
+        data:
+          value: "{{ historical_summary }}"
+    - stop: "{{ 'Historische indicatieve importkosten berekend' if historical_summary_status == 'ok' else 'Historische kosten niet beschikbaar: ' ~ (historical_result.get('reason') or 'onvolledige meetdekking of verouderde periode') }}"
+      response_variable: historical_result

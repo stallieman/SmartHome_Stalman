@@ -24,17 +24,23 @@ def config():
 
 
 def summary():
+    hourly = [{'hour': hour, 'value': 0.4} for hour in range(24)]
+    hourly[18]['value'] = 2.4
     return {'schema_version': 1, 'date': '2026-10-30', 'timezone': 'Europe/Amsterdam', 'sensors': [{
         'id': 'grid_import', 'label': 'Netafname', 'unit': 'kWh', 'kind': 'total_increasing',
-        'value': 12.0, 'quality': {'status': 'ok', 'expected_hours': 24, 'valid_hours': 24},
-        'comparison_7d': {'complete_days': 7, 'mean': 8.0, 'median': 8.0, 'change_pct': 50.0},
-        'comparison_30d': {'complete_days': 30, 'mean': 10.0, 'median': 10.0, 'change_pct': 20.0}}]}
+        'value': 11.6, 'quality': {'status': 'ok', 'expected_hours': 24, 'valid_hours': 24},
+        'hourly': hourly,
+        'night': {'window': '01:00-05:00', 'value': 1.6,
+                  'comparison_7d': {'complete_days': 7, 'mean': 1.0, 'median': 1.0, 'change_pct': 60.0}},
+        'comparison_7d': {'complete_days': 7, 'mean': 8.0, 'median': 8.0, 'change_pct': 45.0},
+        'comparison_30d': {'complete_days': 30, 'mean': 10.0, 'median': 10.0, 'change_pct': 16.0}}]}
 
 
-def ai_response(findings=None, usage=True):
-    findings = findings if findings is not None else [{
-        'sensor_id': 'grid_import', 'pattern': 'above_7d', 'suggestion': 'check_schedule'}]
-    result = {'choices': [{'finish_reason': 'stop', 'message': {'content': json.dumps({'findings': findings})}}]}
+def ai_response(observations=None, usage=True):
+    observations = observations if observations is not None else [{
+        'topic': 'grid_import_vs_7d',
+        'text': 'De netafname lag 45% boven het gemiddelde van de afgelopen 7 dagen (8,00 kWh).'}]
+    result = {'choices': [{'finish_reason': 'stop', 'message': {'content': json.dumps({'observations': observations})}}]}
     if usage:
         result['usage'] = {'prompt_tokens': 1000, 'completion_tokens': 100}
     return result
@@ -50,6 +56,7 @@ class ConfigurationTests(unittest.TestCase):
     def test_example_requires_explicit_sharing(self):
         cfg = d.load_config(ROOT / 'config/ai_analyst/config.example.json')
         self.assertFalse(any(s['share_with_ai'] or s['share_with_telegram'] for s in cfg['sensors']))
+        self.assertFalse(cfg['report']['solar_self_consumption'])
 
     def test_valid_configuration(self):
         self.assertEqual(self.load(config())['timezone'], 'Europe/Amsterdam')
@@ -77,6 +84,10 @@ class ConfigurationTests(unittest.TestCase):
             cfg = config()
             cfg['sensors'][0][key] = value
             cases.append(cfg)
+        for value in ('yes', None, {'unknown': True}, {'solar_self_consumption': 'true'}):
+            cfg = config()
+            cfg['report'] = value
+            cases.append(cfg)
         cfg = config()
         cfg['sensors'].append(copy.deepcopy(cfg['sensors'][0]))
         cases.append(cfg)
@@ -98,48 +109,193 @@ class PrivacyTests(unittest.TestCase):
         for unwanted in ('private', 'never-send', 'attributes', 'entity_id'):
             self.assertNotIn(unwanted, output)
         cfg['sensors'][0]['share_with_ai'] = False
-        self.assertEqual(d.external_summary(data, cfg)['sensors'], [])
+        self.assertEqual(d.external_summary(data, cfg)['kandidaten'], [])
 
     def test_telegram_has_separate_consent(self):
         cfg, data = config(), summary()
         cfg['sensors'][0]['share_with_telegram'] = False
-        findings = [{'sensor_id': 'grid_import', 'pattern': 'above_7d', 'suggestion': 'monitor'}]
-        text = d.render_report(data, cfg, findings, 'test')
+        text = d.render_report(data, cfg, None)
         self.assertNotIn('Netafname', text)
-        self.assertNotIn('12', text)
+        self.assertNotIn('11', text)
+        self.assertNotIn('Nacht', text)
 
-    def test_unsupported_ai_conclusion_is_rejected(self):
-        shared = d.external_summary(summary(), config())
-        for findings in ([{'sensor_id': 'private', 'pattern': 'above_7d', 'suggestion': 'monitor'}],
-                         [{'sensor_id': 'grid_import', 'pattern': 'below_7d', 'suggestion': 'monitor'}],
-                         [{'sensor_id': 'grid_import', 'pattern': 'above_7d', 'suggestion': 'turn_off'}],
-                         [{'sensor_id': 'grid_import', 'pattern': 'above_7d', 'suggestion': 'check_coverage'}],
-                         [{'sensor_id': [], 'pattern': 'above_7d', 'suggestion': 'monitor'}]):
-            with self.subTest(findings=findings), self.assertRaises(ValueError):
-                d.validate_findings({'findings': findings}, shared)
+    def test_ai_text_is_limited_to_telegram_consented_candidates(self):
+        cfg = config()
+        observations = [{'topic': 'grid_import_vs_7d', 'text': 'De netafname lag 45% boven het gemiddelde van de afgelopen 7 dagen (8,00 kWh).'}]
+        cfg['sensors'][0]['share_with_telegram'] = False
+        cfg['sensors'].append({**copy.deepcopy(cfg['sensors'][0]), 'id': 'gas', 'label': 'Gasverbruik',
+                               'unit': 'm³', 'share_with_telegram': True})
+        data = summary()
+        data['sensors'].append({**copy.deepcopy(data['sensors'][0]), 'id': 'gas', 'label': 'Gasverbruik', 'unit': 'm³'})
+        self.assertNotIn('netafname', d.render_report(data, cfg, observations))
+
+    def test_unsupported_ai_text_is_rejected(self):
+        candidates = d.build_candidates(summary(), config(), 'share_with_ai')
+        good = 'De netafname lag 45% boven het gemiddelde van de afgelopen 7 dagen (8,00 kWh).'
+
+        def one(topic='grid_import_vs_7d', text=good):
+            return {'observations': [{'topic': topic, 'text': text}]}
+        self.assertEqual(d.validate_observations(one(), candidates)[0]['text'], good)
+        self.assertEqual(d.validate_observations({'observations': []}, candidates), [])
+        wrong_direction = 'De netafname lag 45% onder het gemiddelde van de afgelopen 7 dagen (8,00 kWh).'
+        bad = [
+            one('private'), one(text='De netafname lag 46% boven het gemiddelde (8,00 kWh).'),
+            one(text=wrong_direction),
+            one(text='De netafname lag 45% boven het gemiddelde, waarschijnlijk door de wasmachine.'),
+            one(text='Controleer de meter: 45% boven het gemiddelde van 8,00 kWh.'),
+            one(text='De netafname kostte 45% meer, € 3,00 boven het gemiddelde van 8,00 kWh.'),
+            one(text='x' * 161), one(text='kort'), one(text=['list']), {'observations': 'x'},
+            {'observations': [], 'extra': 1}, {'observations': [{'topic': 'night_vs_7d'}]},
+            {'observations': [{'topic': 'night_vs_7d', 'text': good, 'extra': 1}]},
+            {'observations': [{'topic': 'grid_import_vs_7d', 'text': good}] * 2},
+            {'observations': [{'topic': 'grid_import_vs_7d', 'text': good},
+                              {'topic': 'night_vs_7d', 'text': good}, {'topic': 'peak_hour', 'text': good}]},
+        ]
+        for value in bad:
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                d.validate_observations(value, candidates)
+
+    def test_ai_may_round_numbers_only_to_exactly_equal_values(self):
+        candidates = d.build_candidates(summary(), config(), 'share_with_ai')
+        text = 'De netafname lag 45% boven het gemiddelde van de afgelopen 7 dagen (8 kWh).'
+        self.assertEqual(len(d.validate_observations(
+            {'observations': [{'topic': 'grid_import_vs_7d', 'text': text}]}, candidates)), 1)
 
     def test_zero_baseline_does_not_invent_percentage(self):
-        data = summary()['sensors'][0]
-        data['comparison_7d']['mean'] = 0
-        self.assertIn('above_7d', d.candidates_for(data))
+        data = summary()
+        data['sensors'][0]['comparison_7d']['mean'] = 0
+        self.assertNotIn('grid_import_vs_7d', [c['topic'] for c in d.build_candidates(data, config(), 'share_with_ai')])
 
-    def test_missing_or_incomplete_does_not_make_patterns(self):
-        sensor = summary()['sensors'][0]
-        sensor['quality']['status'] = 'incomplete'
-        self.assertEqual(d.candidates_for(sensor), ['insufficient_data'])
-        sensor['quality']['status'] = 'ok'
-        sensor['comparison_7d']['complete_days'] = 6
-        sensor['comparison_30d']['complete_days'] = 29
-        self.assertEqual(d.candidates_for(sensor), ['insufficient_data'])
+    def test_missing_or_incomplete_does_not_make_candidates(self):
+        data = summary()
+        data['sensors'][0]['quality']['status'] = 'incomplete'
+        self.assertEqual(d.build_candidates(data, config(), 'share_with_ai'), [])
+        data = summary()
+        data['sensors'][0]['comparison_7d']['complete_days'] = 6
+        data['sensors'][0]['night']['comparison_7d']['complete_days'] = 6
+        self.assertEqual([c['topic'] for c in d.build_candidates(data, config(), 'share_with_ai')], ['peak_hour'])
 
-    def test_render_is_plain_text_and_utf16_bounded(self):
+    def test_small_or_unclear_deviations_are_not_observations(self):
+        data = summary()
+        sensor = data['sensors'][0]
+        sensor.update(value=8.9, hourly=[{'hour': h, 'value': 8.9 / 24} for h in range(24)],
+                      night={'value': 0.5, 'comparison_7d': {'complete_days': 7, 'mean': 0.45}})
+        self.assertEqual(d.build_candidates(data, config(), 'share_with_ai'), [])
+        sensor.update(value=1.2)
+        sensor['comparison_7d']['mean'] = 0.8
+        self.assertNotIn('grid_import_vs_7d', [c['topic'] for c in d.build_candidates(data, config(), 'share_with_ai')])
+
+    def test_night_share_replaces_flat_night_baseline(self):
+        data = summary()
+        sensor = data['sensors'][0]
+        sensor['hourly'] = [{'hour': h, 'value': 0.5} for h in range(24)]
+        sensor['value'] = 5.0
+        sensor['night'] = {'value': 1.5, 'comparison_7d': {'complete_days': 0, 'mean': None}}
+        sensor['comparison_7d'] = {'complete_days': 0}
+        found = d.build_candidates(data, config(), 'share_with_ai')
+        self.assertEqual([c['topic'] for c in found], ['night_share'])
+        self.assertIn('30%', found[0]['text'])
+
+    def test_candidates_are_capped_and_ranked(self):
+        cfg, data = config(), summary()
+        for sid, unit in (('solar', 'kWh'), ('grid_export', 'kWh'), ('gas', 'm³')):
+            cfg['sensors'].append({**copy.deepcopy(cfg['sensors'][0]), 'id': sid, 'unit': unit})
+            data['sensors'].append({**copy.deepcopy(data['sensors'][0]), 'id': sid, 'unit': unit})
+        found = d.build_candidates(data, cfg, 'share_with_ai')
+        self.assertEqual(len(found), d.MAX_CANDIDATES)
+        self.assertEqual([c['score'] for c in found], sorted((c['score'] for c in found), reverse=True))
+
+    def test_dutch_number_notation(self):
+        for value, text in ((5.655, '5,66'), (0.231, '0,23'), (1.3, '1,30'), (2.229, '2,23'),
+                            (1234.5, '1.234,50'), (-0.001, '0,00'), (0, '0,00')):
+            self.assertEqual(d.number_text(value), text)
+        self.assertEqual(d.number_text(None), 'niet beschikbaar')
+        self.assertEqual(d.number_text(float('nan')), 'niet beschikbaar')
+        self.assertEqual(d.date_text('2026-11-01'), 'zondag 1 november 2026')
+
+    def test_render_is_plain_text_short_and_non_technical(self):
         text = d.clipped('😀' * 5000)
         self.assertLessEqual(len(text.encode('utf-16-le')) // 2, 3900)
-        cfg = config()
-        findings = [{'sensor_id': 'grid_import', 'pattern': 'above_7d', 'suggestion': 'monitor'}]
-        text = d.render_report(summary(), cfg, findings, 'reason')
-        self.assertIn('50%', text)
-        self.assertIn('geen oorzaak', text)
+        text = d.render_report(summary(), config(), None)
+        self.assertEqual(text.splitlines()[0], '⚡ Dagrapport vrijdag 30 oktober 2026')
+        for expected in ('Netafname: 11,60 kWh', 'Nacht (01–05 u): 1,60 kWh', 'Piekuur: 18–19 u (2,40 kWh)',
+                         '• Het nachtverbruik (01–05 u) lag 60% boven het gemiddelde van de afgelopen 7 dagen (1,00 kWh).',
+                         '• Netafname lag 45% boven het gemiddelde van de afgelopen 7 dagen (8,00 kWh).'):
+            self.assertIn(expected, text)
+        self.assertEqual(text.count('•'), d.MAX_OBSERVATIONS)
+        for technical in ('Europe/Amsterdam', 'dekking', 'Controleer', 'validatie', 'AI-analyse', 'bucket', 'sensor'):
+            self.assertNotIn(technical, text)
+        self.assertLess(len(text.splitlines()), 12)
+
+    def test_ai_text_replaces_fallback_and_empty_ai_list_adds_nothing(self):
+        observations = [{'topic': 'night_vs_7d', 'text': 'Het nachtverbruik (01–05 u) lag 60% boven het gemiddelde van de afgelopen 7 dagen (1,00 kWh).'}]
+        text = d.render_report(summary(), config(), observations)
+        self.assertEqual(text.count('•'), 1)
+        self.assertIn('nachtverbruik', text)
+        self.assertNotIn('•', d.render_report(summary(), config(), []))
+
+    def test_short_history_gives_only_figures_without_repeated_notices(self):
+        data = summary()
+        sensor = data['sensors'][0]
+        sensor.pop('hourly')
+        sensor.pop('night')
+        sensor['comparison_7d'] = {'complete_days': 2}
+        sensor['comparison_30d'] = {'complete_days': 2}
+        text = d.render_report(data, config(), None)
+        self.assertEqual(text.splitlines(), ['⚡ Dagrapport vrijdag 30 oktober 2026', '', 'Netafname: 11,60 kWh'])
+
+    def test_missing_sensor_is_one_plain_line_and_total_outage_one_sentence(self):
+        cfg, data = config(), summary()
+        cfg['sensors'].append({**copy.deepcopy(cfg['sensors'][0]), 'id': 'gas', 'label': 'Gasverbruik', 'unit': 'm³'})
+        data['sensors'].append({'id': 'gas', 'label': 'Gasverbruik', 'unit': 'm³', 'kind': 'total_increasing',
+                                'value': None, 'quality': {'status': 'incomplete', 'reason': 'missing_or_invalid_hours'}})
+        text = d.render_report(data, cfg, None)
+        self.assertEqual(text.count('niet beschikbaar'), 1)
+        self.assertIn('Gasverbruik: niet beschikbaar', text)
+        self.assertNotIn('missing', text)
+        for sensor in data['sensors']:
+            sensor.update(value=None, quality={'status': 'unavailable'})
+        text = d.render_report(data, cfg, None)
+        self.assertEqual(text.splitlines()[-1], 'Geen betrouwbare meetgegevens voor deze dag.')
+        self.assertNotIn('Netafname', text)
+
+
+class SolarSelfUseTests(unittest.TestCase):
+    def setUp(self):
+        self.cfg = config()
+        self.cfg['sensors'] = [{**self.cfg['sensors'][0], 'id': sid, 'label': label}
+                               for sid, label in (('grid_export', 'Teruglevering'), ('solar', 'Zonneproductie'))]
+        self.cfg['report'] = {'solar_self_consumption': True}
+        base = summary()['sensors'][0]
+        ok = {'status': 'ok', 'expected_hours': 24, 'valid_hours': 24}
+        self.data = {'date': '2026-11-01', 'sensors': [
+            {**base, 'id': 'grid_export', 'label': 'Teruglevering', 'value': 0.231, 'quality': dict(ok)},
+            {**base, 'id': 'solar', 'label': 'Zonneproductie', 'value': 1.3, 'quality': dict(ok)}]}
+
+    def test_known_day_totals(self):
+        text = d.render_report(self.data, self.cfg, None)
+        self.assertIn('Teruglevering: 0,23 kWh', text)
+        self.assertIn('Zonneproductie: 1,30 kWh', text)
+        self.assertIn('Zelf gebruikt van zon: 1,07 kWh (82%)', text)
+
+    def test_not_calculated_without_explicit_confirmation(self):
+        self.cfg['report'] = {'solar_self_consumption': False}
+        self.assertNotIn('Zelf gebruikt', d.render_report(self.data, self.cfg, None))
+        del self.cfg['report']
+        self.assertNotIn('Zelf gebruikt', d.render_report(self.data, self.cfg, None))
+
+    def test_not_calculated_for_invalid_or_inconsistent_values(self):
+        self.data['sensors'][0]['quality']['status'] = 'incomplete'
+        self.assertNotIn('Zelf gebruikt', d.render_report(self.data, self.cfg, None))
+        self.data['sensors'][0]['quality']['status'] = 'ok'
+        self.data['sensors'][0]['value'] = 1.4  # more exported than produced
+        self.assertNotIn('Zelf gebruikt', d.render_report(self.data, self.cfg, None))
+        self.data['sensors'][0]['value'] = 0.0
+        self.data['sensors'][1]['value'] = 0.05  # production too small for a meaningful share
+        self.assertNotIn('Zelf gebruikt', d.render_report(self.data, self.cfg, None))
+        self.data['sensors'][1]['value'] = 1.3
+        del self.cfg['sensors'][0]  # export not selected for Telegram
+        self.assertNotIn('Zelf gebruikt', d.render_report(self.data, self.cfg, None))
 
 
 class BudgetTests(unittest.TestCase):
@@ -163,31 +319,51 @@ class BudgetTests(unittest.TestCase):
             self.assertTrue(self.save.called)
             self.assertEqual(args[1]['model'], 'gpt-4.1-mini')
             self.assertFalse(args[1]['store'])
-            self.assertEqual(args[1]['max_completion_tokens'], 600)
+            self.assertEqual(args[1]['max_completion_tokens'], 300)
             self.assertNotIn('tools', args[1])
             return ai_response()
         self.transport.side_effect = transport
-        findings, _ = self.call()
-        self.assertEqual(len(findings), 1)
+        observations, _ = self.call()
+        self.assertEqual(len(observations), 1)
         entry = self.state['ai_days']['2026-10-31']
         self.assertEqual(entry['status'], 'success')
         self.assertEqual(Decimal(entry['cost_usd']), Decimal('0.00056'))
         self.assertEqual(entry['usage']['prompt_tokens'], 1000)
 
+    def test_request_contains_only_compact_candidates_and_forbids_explanations(self):
+        self.call()
+        body = self.transport.call_args.args[1]
+        shared = json.loads(body['messages'][1]['content'])
+        self.assertEqual(set(shared), {'datum', 'kandidaten'})
+        self.assertEqual({c['topic'] for c in shared['kandidaten']}, {'grid_import_vs_7d', 'night_vs_7d', 'peak_hour'})
+        self.assertLessEqual(len(shared['kandidaten']), d.MAX_CANDIDATES)
+        self.assertNotIn('hourly', json.dumps(shared))
+        system = body['messages'][0]['content']
+        for rule in ('nuchtere energieanalist', 'maximaal twee', 'lege lijst', 'geen oorzaken'):
+            self.assertIn(rule, system)
+        topics = body['response_format']['json_schema']['schema']['properties']['observations']['items']['properties']['topic']['enum']
+        self.assertEqual(set(topics), {c['topic'] for c in shared['kandidaten']})
+
     def test_success_cache_reuses_without_new_cost(self):
         self.call()
-        self.call()
+        self.assertEqual(self.call()[0][0]['topic'], 'grid_import_vs_7d')
+        self.transport.assert_called_once()
+
+    def test_empty_ai_answer_is_valid_and_cached(self):
+        self.transport.return_value = ai_response([])
+        self.assertEqual(self.call()[0], [])
+        self.assertEqual(self.call()[0], [])
         self.transport.assert_called_once()
 
     def test_only_one_attempt_per_execution_calendar_day(self):
         self.call()
         self.data['date'] = '2026-10-29'
-        self.assertEqual(self.call()[0], [])
+        self.assertIsNone(self.call()[0])
         self.transport.assert_called_once()
 
     def test_timeout_keeps_reservation_and_does_not_retry(self):
         self.transport.side_effect = d.DeliveryError('synthetic timeout')
-        self.assertEqual(self.call()[0], [])
+        self.assertIsNone(self.call()[0])
         cost = self.state['ai_days']['2026-10-31']['cost_usd']
         self.assertGreater(Decimal(cost), 0)
         self.call()
@@ -220,13 +396,24 @@ class BudgetTests(unittest.TestCase):
     def test_no_complete_sensor_day_avoids_ai_cost(self):
         self.data['sensors'][0]['quality']['status'] = 'incomplete'
         self.data['sensors'][0]['value'] = None
-        self.assertIn('geen volledige meetdag', self.call()[1])
+        observations, reason = self.call()
+        self.assertIsNone(observations)
+        self.assertIn('geen opvallende patronen', reason)
         self.transport.assert_not_called()
+
+    def test_short_history_without_notable_pattern_avoids_ai_cost(self):
+        sensor = self.data['sensors'][0]
+        sensor.pop('hourly')
+        sensor.pop('night')
+        sensor['comparison_7d'] = {'complete_days': 3}
+        self.assertIsNone(self.call()[0])
+        self.transport.assert_not_called()
+        self.assertEqual(self.state['ai_days'], {})
 
     def test_disabled_ai_does_not_reuse_cached_narrative(self):
         self.call()
         self.cfg['ai']['enabled'] = False
-        self.assertEqual(self.call()[0], [])
+        self.assertIsNone(self.call()[0])
         self.transport.assert_called_once()
 
     def test_default_four_sensor_payload_fits_input_budget(self):
@@ -239,8 +426,14 @@ class BudgetTests(unittest.TestCase):
             sensor['id'] = configured['id']
             sensor['label'] = configured['label']
             data['sensors'].append(sensor)
-        body = d.request_body(d.external_summary(data, cfg), cfg)
+        shared = d.external_summary(data, cfg)
+        self.assertEqual(len(shared['kandidaten']), d.MAX_CANDIDATES)
+        body = d.request_body(shared, cfg)
         self.assertLessEqual(len(d.json_bytes(body)) + 1024, cfg['ai']['max_input_tokens'])
+        # Worst-case reservation stays far below the monthly limit per day.
+        reservation = (Decimal(len(d.json_bytes(body)) + 1024) * d.INPUT_PRICE
+                       + Decimal(cfg['ai']['max_output_tokens']) * d.OUTPUT_PRICE) / 1_000_000
+        self.assertLess(reservation * 31, Decimal('0.25'))
 
     def test_no_key_or_no_consent_does_not_call(self):
         with patch.dict(os.environ, {}, clear=True):
@@ -250,8 +443,12 @@ class BudgetTests(unittest.TestCase):
         self.transport.assert_not_called()
 
     def test_invalid_response_falls_back_but_accounts_for_usage(self):
-        self.transport.return_value = ai_response([{'sensor_id': 'grid_import', 'pattern': 'below_7d', 'suggestion': 'monitor'}])
-        self.assertEqual(self.call()[0], [])
+        self.transport.return_value = ai_response([{
+            'topic': 'grid_import_vs_7d',
+            'text': 'De netafname lag 45% boven het gemiddelde (8,00 kWh), waarschijnlijk door de wasmachine.'}])
+        observations, reason = self.call()
+        self.assertIsNone(observations)
+        self.assertIn('lokaal rapport', reason)
         entry = self.state['ai_days']['2026-10-31']
         self.assertEqual(entry['status'], 'failed')
         self.assertEqual(Decimal(entry['cost_usd']), Decimal('.00056'))
@@ -260,7 +457,7 @@ class BudgetTests(unittest.TestCase):
         response = ai_response()
         response['choices'][0]['finish_reason'] = 'length'
         self.transport.return_value = response
-        self.assertEqual(self.call()[0], [])
+        self.assertIsNone(self.call()[0])
 
     def test_impossible_usage_never_refunds_reservation(self):
         self.transport.return_value = ai_response()
@@ -272,8 +469,8 @@ class BudgetTests(unittest.TestCase):
     def test_consent_change_invalidates_cached_findings(self):
         self.call()
         self.cfg['sensors'][0]['share_with_ai'] = False
-        findings, _ = self.call()
-        self.assertEqual(findings, [])
+        observations, _ = self.call()
+        self.assertIsNone(observations)
         self.transport.assert_called_once()
 
 
@@ -310,6 +507,7 @@ class PersistenceAndRunTests(unittest.TestCase):
         self.assertEqual((self.path / 'state.json').stat().st_mode & 0o777, 0o600)
         text = self.telegram.call_args.args[1]['text']
         self.assertIn('Netafname', text)
+        self.assertIn('boven het gemiddelde van de afgelopen 7 dagen (8,00 kWh)', text)
         self.assertNotIn('parse_mode', self.telegram.call_args.args[1])
 
     def test_concurrent_runs_share_one_ai_and_delivery(self):
@@ -322,9 +520,28 @@ class PersistenceAndRunTests(unittest.TestCase):
         self.assertTrue(any('geen dubbele' in result for result in results))
 
     def test_local_only_calls_no_external_services(self):
-        self.assertIn('niet aangeroepen', self.run_report(local_only=True))
+        result = self.run_report(local_only=True)
+        self.assertIn('niet aangeroepen', result)
+        self.assertIn('⚡ Dagrapport vrijdag 30 oktober 2026', result)  # local preview of the Telegram text
         self.ai.assert_not_called()
         self.telegram.assert_not_called()
+
+    def test_technical_warnings_go_to_the_log_and_not_to_telegram(self):
+        import contextlib
+        import io
+        data = summary()
+        data['sensors'].append({'id': 'gas', 'label': 'Gasverbruik', 'unit': 'm³', 'kind': 'total_increasing',
+                                'value': None, 'quality': {'status': 'incomplete', 'reason': 'missing_or_invalid_hours'}})
+        self.cfg['sensors'].append({**copy.deepcopy(self.cfg['sensors'][0]), 'id': 'gas', 'label': 'Gasverbruik', 'unit': 'm³'})
+        self.collector.return_value = data
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.run_report()
+        self.assertIn('missing_or_invalid_hours', stderr.getvalue())
+        self.assertIn('AI-analyse gecontroleerd', stderr.getvalue())
+        text = self.telegram.call_args.args[1]['text']
+        for technical in ('missing_or_invalid_hours', 'AI-analyse', 'dekking'):
+            self.assertNotIn(technical, text)
 
     def test_disabled_telegram_avoids_pointless_ai_cost(self):
         self.cfg['telegram']['enabled'] = False
@@ -385,7 +602,7 @@ class PersistenceAndRunTests(unittest.TestCase):
         self.run_report()
         self.ai.assert_not_called()
         self.telegram.assert_called_once()
-        self.assertIn('niet beschikbaar', self.telegram.call_args.args[1]['text'])
+        self.assertIn('Geen betrouwbare meetgegevens', self.telegram.call_args.args[1]['text'])
 
     def test_lost_state_is_not_a_fresh_budget(self):
         (self.path / 'summary-2026-10-29.json').write_text('{}')

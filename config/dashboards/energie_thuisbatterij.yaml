@@ -161,19 +161,26 @@ views:
       content: 'Batterijbesparing · simulatie
 
 
-        {% set v = states(''sensor.stalman_batterijbesparing_vandaag'') %}
-
-        {% if is_number(v) %}
-
-        # {{ (v | float * 1) | round(2) }} €
-
-        {% else %}
-
-        **Nog niet beschikbaar**
-
-        {% endif %}'
+        **Nog niet beschikbaar**'
       grid_options:
         columns: 6
+        rows: auto
+    - type: markdown
+      content: >-
+        **Indicatieve bruto stroomafnamekosten vóór saldering**
+
+        {% set value = states('sensor.stalman_historische_importkosten') %}
+        {% if is_number(value) %}
+        # € {{ value | float | round(2) | string | replace('.', ',') }}
+
+        Datum: {{ state_attr('sensor.stalman_historische_importkosten', 'date') }} · Meetdekking: {{ state_attr('sensor.stalman_historische_importkosten', 'coverage') }}
+        {% else %}
+        **Nog niet beschikbaar**
+        {% endif %}
+      entity_id:
+        - sensor.stalman_historische_importkosten
+      grid_options:
+        columns: 12
         rows: auto
     - type: markdown
       content: 'Dagmeters: eerste dag vanaf installatie.'
@@ -338,7 +345,7 @@ views:
         name: Met batterij · simulatie
     - type: tile
       entity: sensor.marstek_venus_e_5_12kwh_3nd_gen_total_energy_saved
-      name: Bespaarde netafname · simulatie
+      name: Vermeden netafname · simulatie
       tap_action:
         action: more-info
       icon: mdi:transmission-tower-off
@@ -358,86 +365,40 @@ views:
   - type: grid
     cards:
     - type: heading
-      heading: Kostenvergelijking · schatting
+      heading: Financiën
       icon: mdi:currency-eur
     - type: markdown
-      content: 'Op gemeten netenergie, met virtuele batterij als simulatie. Zonder bevestigde contractgegevens en
-        gelijktijdige meetwaarden: **Nog niet beschikbaar**.'
-    - type: tile
-      entity: sensor.stalman_besparingsscenario
-      name: Periodebesparing · simulatie
-      tap_action:
-        action: more-info
-      icon: mdi:calculator
-      color: green
-    - type: entities
-      title: Volledige afrekening · geselecteerd jaar
-      show_header_toggle: false
-      entities:
-      - entity: sensor.stalman_afrekening_kosten_zonder_batterij
-        name: Variabele kosten · zonder batterij
-      - entity: sensor.stalman_afrekening_kosten_met_simulatie
-        name: Variabele kosten · met simulatie
-      - entity: sensor.stalman_besparingsscenario
-        name: Verschil · variabele kosten
-      - entity: sensor.stalman_totaal_afrekening_zonder_batterij
-        name: Totale kosten incl. vaste kosten · zonder batterij
-      - entity: sensor.stalman_totaal_afrekening_met_simulatie
-        name: Totale kosten incl. vaste kosten · met simulatie
+      content: >-
+        **Indicatieve bruto stroomafnamekosten vóór saldering**
+
+        {% set value = states('sensor.stalman_historische_importkosten') %}
+        {% if is_number(value) %}
+        # € {{ value | float | round(2) | string | replace('.', ',') }}
+
+        Datum: {{ state_attr('sensor.stalman_historische_importkosten', 'date') }} · Meetdekking: {{ state_attr('sensor.stalman_historische_importkosten', 'coverage') }}
+        {% else %}
+        **Nog niet beschikbaar**
+        {% endif %}
+      entity_id:
+        - sensor.stalman_historische_importkosten
+      grid_options:
+        columns: 12
+        rows: auto
     - type: markdown
-      content: Een afrekening gebruikt de contract- en meetperiode uit de financiële invoer. Vaste kosten worden
-        alleen aan totalen toegevoegd als bedrag, btw-basis en geldigheidsduur bevestigd zijn; ze worden nooit
-        als batterijbesparing geteld. De Marstek-uitkomst blijft een simulatie.
+      content: '**Batterijbesparing · simulatie: nog niet beschikbaar.** Contractgegevens en gekoppelde meetperiode ontbreken.'
+      grid_options:
+        columns: 12
+        rows: auto
+    - type: markdown
+      content: '**Kosten met/zonder batterij: nog niet beschikbaar.** Financiële validatie vereist bevestigde contractperiode en gelijktijdige metingen.'
+      grid_options:
+        columns: 12
+        rows: auto
     - type: markdown
       content: '**Terugverdientijd: nog niet beschikbaar.**'
-    - type: entities
-      title: Vandaag · gemeten basis versus simulatie
-      show_header_toggle: false
-      entities:
-      - entity: sensor.stalman_kosten_zonder_batterij_vandaag
-        name: Zonder batterij · geschatte kosten
-      - entity: sensor.stalman_kosten_met_batterij_vandaag
-        name: Met virtuele batterij · geschatte kosten
-      - entity: sensor.stalman_batterijbesparing_vandaag
-        name: Verschil · simulatie
-    - type: markdown
-      content: '{% if not is_state(''sensor.stalman_financiele_vergelijking'', ''ok'') %}
-
-        **Nog niet beschikbaar**
-
-
-        {{ state_attr(''sensor.stalman_financiele_vergelijking'', ''reason'') or ''Contractgegevens en gekoppelde
-        meetperiode ontbreken.'' }}
-
-        {% endif %}'
-    - type: entities
-      title: Gecertificeerd meetvenster · schatting
-      show_header_toggle: false
-      entities:
-      - entity: sensor.stalman_meetvenster_zonder
-        name: Zonder batterij · gemeten basis
-      - entity: sensor.stalman_meetvenster_met
-        name: Met virtuele batterij · simulatie
-      - entity: sensor.stalman_meetvenster_verschil
-        name: Financieel verschil · simulatie
-    - type: markdown
-      content: '{% if is_state(''sensor.stalman_financiele_vergelijking'', ''ok'') and state_attr(''sensor.stalman_financiele_vergelijking'',
-        ''scope'') == ''window'' %}
-
-        **Alleen dit meetvenster:**
-
-
-        {{ state_attr(''sensor.stalman_financiele_vergelijking'', ''measured_from'') }} → {{ state_attr(''sensor.stalman_financiele_vergelijking'',
-        ''observed_until'') }}
-
-
-        Geen volledige dag of jaarrekening.
-
-        {% else %}
-
-        **Gecertificeerd meetvenster: nog niet beschikbaar.**
-
-        {% endif %}'
+      grid_options:
+        columns: 12
+        rows: auto
   - type: grid
     cards:
     - type: heading

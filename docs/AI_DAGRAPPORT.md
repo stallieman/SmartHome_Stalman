@@ -9,8 +9,27 @@ Losse, kortlopende Ubuntu-taak; geen HA-package, automation, extra container of 
 3. Cumulatieve numerieke sensoren gebruiken uurlijkse statistiek-`change`, niet absolute tellerstanden. Numerieke metingen gebruiken het tijdgewogen daggemiddelde en min/max. Eenheden en elk verwacht uurbucket worden gecontroleerd. Kalenderdagen bevatten 23, 24 of 25 uur.
 4. De 7-/30-daagse referentie sluit de rapportdag uit en vereist alle respectievelijke referentiedagen. Een ontbrekend of ongeldig bucket maakt de betreffende dag incompleet, niet nul. Voor nulreferenties volgt geen fictief percentage.
 5. Een compacte lokale JSON-samenvatting wordt opgeslagen. Alleen sensoren met expliciet `share_with_ai: true` gaan naar OpenAI. Telegram heeft de afzonderlijke toestemming `share_with_telegram: true`. Beide staan in het voorbeeld **uit**.
-6. GPT-4.1 mini selecteert maximaal vier patronen en voorzichtige controleadviezen. Patronen zijn vooraf lokaal berekend: meer dan tien procent boven/onder de 7-/30-daagse referentie, stabiel tegenover zeven dagen, of onvoldoende gegevens. Antwoorden zijn gestructureerde JSON; onbekende sensoren, ongefundeerde patronen en vrije tekst worden afgewezen. De leesbare Nederlandse formuleringen en alle getallen komen uit lokale code. Dit voorkomt verzonnen getallen/oorzaken, maar is bewust beperkter dan vrije AI-tekst.
-7. Bij AI-uitval, ontbrekende OpenAI-key, tokenlimiet of onvoldoende budget wordt alleen het lokale cijferoverzicht verstuurd. Bij volledige HA-uitval worden waarden onbeschikbaar vermeld en wordt geen AI-kostenpost gemaakt. Als Telegram ontbreekt of uitstaat wordt geen nutteloze AI-aanvraag uitgevoerd.
+6. Lokaal worden alle getallen en observatiekandidaten berekend: dagtotalen, het nachtverbruik (01:00–05:00), het uur met de hoogste netafname en vergelijkingen met het 7-daagse gemiddelde. Een kandidaat vereist een volledige 7-daagse referentie en een duidelijke afwijking (minstens 25% én minstens 1 kWh of 0,5 m³; nacht: 0,3 kWh). GPT-4.1 mini schrijft maximaal twee korte, nuchtere Nederlandse zinnen over die kandidaten, of niets als er niets bijzonders is. De AI krijgt alleen de compacte kandidaten (vooraf in Nederlandse notatie afgerond), geen ruwe uurwaarden of sensor-ID's. Een antwoord wordt lokaal gevalideerd: bekend onderwerp, maximaal 160 tekens, uitsluitend getallen uit de aangeleverde gegevens, een richting (hoger/lager) die klopt, en geen oorzaken, apparaten, tips, bedragen, batterijen of technische termen. Een afgewezen antwoord valt terug op lokale zinnen voor dezelfde kandidaten.
+7. Bij AI-uitval, ontbrekende OpenAI-key, tokenlimiet of onvoldoende budget gebruikt het rapport die lokale zinnen. Zonder kandidaat (bijvoorbeeld bij weinig historie) wordt geen AI-aanvraag gedaan en bevat het rapport alleen de cijfers. Bij volledige HA-uitval volgt één korte zin dat er geen betrouwbare meetgegevens zijn. Als Telegram ontbreekt of uitstaat wordt geen nutteloze AI-aanvraag uitgevoerd. Technische meldingen (onvolledige dekking, AI-status) gaan naar stderr/het journal, niet naar Telegram.
+
+Het Telegram-bericht heeft deze vorm (zonder parse-modus, kort genoeg voor een telefoon):
+
+```
+⚡ Dagrapport zondag 1 november 2026
+
+Netafname: 5,66 kWh
+Teruglevering: 0,23 kWh
+Zonneproductie: 1,30 kWh
+Gasverbruik: 2,23 m³
+
+Nacht (01–05 u): ‹kWh›        (alleen met volledige uurgegevens)
+Piekuur: ‹u–u› (‹kWh›)       (alleen met volledige uurgegevens)
+Zelf gebruikt van zon: ‹kWh› (‹%›)   (alleen met report.solar_self_consumption)
+
+• ‹maximaal twee observaties, alleen als de data daar aanleiding toe geeft›
+```
+
+Het nachtverbruik en het piekuur gebruiken uitsluitend de gevalideerde uurbuckets van `grid_import`; op dagen met 23 of 25 uur (zomer-/wintertijd) is er geen vergelijkbaar nachtvenster. Voor het uurinzicht en de nachtvergelijking moet de netafname-sensor het ID `grid_import` hebben, voor het zelfverbruik `solar` en `grid_export`.
 
 Volledige uurbucketdekking bewijst niet dat een fysieke sensor voortdurend werkte: HA kan bij een stagnerende teller nog statistieken hebben. Deze eerste versie doet geen fijnmazige uptime-attestatie. Controleer sensorkwaliteit in HA. Er zijn geen causale conclusies, individuele apparaatidentificatie, financiële bedragen of batterijsimulatieberekeningen. De bestaande Marstek- en financiële bestanden blijven ongewijzigd.
 
@@ -19,7 +38,7 @@ Uitbreiden kan zonder Python-aanpassing: voeg een sensor aan de JSON toe met eig
 ## Kosten, betrouwbaarheid en opslag
 
 - Vast model `gpt-4.1-mini`, zonder tools, webzoekopdrachten, conversatiehistorie of retrylus. Prijsbasis: USD 0,40/miljoen inputtokens en USD 1,60/miljoen outputtokens. Controleer deze bij installatie tegen de [officiële prijslijst](https://developers.openai.com/api/docs/pricing). Bij gewijzigde prijzen eerst constants in `daily.py` aanpassen; de lokale kostenraming is geen provider-side factuurlimiet.
-- Standaard maximaal 6.000 conservatief geraamde inputtokens en 600 outputtokens. De volledige UTF-8-requestlengte plus framingmarge wordt als bovengrens voor input gereserveerd. Ook schema/instructies tellen mee. Grotere invoer leidt tot fallback, niet stilzwijgend verlies van sensoren. Bij 3.200 werkelijk gebruikte inputtokens en 500 outputtokens is dertig dagen circa USD 0,0624.
+- Standaard maximaal 6.000 conservatief geraamde inputtokens en 300 outputtokens. De volledige UTF-8-requestlengte plus framingmarge wordt als bovengrens voor input gereserveerd. Ook schema/instructies tellen mee. Grotere invoer leidt tot fallback, niet stilzwijgend verlies van gegevens. Een aanvraag met vier kandidaten is circa 1,9 kB: de gereserveerde bovengrens is ongeveer USD 0,00165 per dag (circa USD 0,05 per maand); bij ruwweg 700 inputtokens en 100 outputtokens is de werkelijke prijs circa USD 0,0004 per dag. Zonder kandidaat volgt geen aanvraag.
 - Het lokale maandbudget is maximaal **USD 0,50**, berekend per kalendermaand in Amsterdam. De volledige maximale aanvraagkosten worden vóór verzending atomair gereserveerd. Geldige werkelijk gerapporteerde usage vervangt de reservering; bij timeout, onzekere usage of crash blijft de reservering staan. Er volgt maximaal één **poging** per uitvoeringskalenderdag (strikter dan één succes). Eerdere succesvolle analyse van dezelfde ongewijzigde input kan zonder nieuwe aanvraag worden hergebruikt.
 - Eén bestandslock beschermt collectie, budget en verzending tegen gelijktijdige uitvoeringen. De status wordt met `fsync` en atomische vervanging vastgelegd. Bestanden zijn 0600, de servicestatusmap 0700. De service heeft geen schrijfrechten op de code of HA-configuratie.
 - Telegram wordt zonder HTML/Markdown-parsemodus en zonder linkpreviews verstuurd, begrensd tot één kort bericht. Na bevestiging volgt geen dubbele verzending. Na een timeout/crash tijdens verzending kan niet worden vastgesteld of Telegram het bericht ontving: de status wordt `uncertain` of blijft `sending` en automatische herverzending stopt. Na een expliciete afwijzing mag een volgende handmatige start opnieuw verzenden, zonder nieuwe AI-kosten voor gecachte input. Er is geen automatische netwerkretry.
@@ -54,6 +73,7 @@ Configureer:
 - `ha_url`: het bereikbare HA-basisadres. Op dezelfde Ubuntu-host met host-networking kan `http://127.0.0.1:8123` werken; bij andere hosts HTTPS gebruiken.
 - Exacte entity-/statistic-ID's en eenheden volgens HA **Ontwikkelaarstools → Statistieken/Statussen**. Verwijder ongewenste sensoren. De repo bevat ook oudere P1-ID's met `energy` in plaats van `energie`; kies de werkelijk aanwezige ID's. Geen automatische gok/fallback.
 - Zet per gewenste sensor afzonderlijk `share_with_ai` en/of `share_with_telegram` op `true`. Voor verzending moet minstens één sensor voor Telegram geselecteerd zijn. Selecteer geen persoonlijke gegevens die niet extern gedeeld mogen worden.
+- `report.solar_self_consumption` staat standaard op `false`. Zet het alleen op `true` als de zonnesensor (`solar`) de totale PV-productie achter de slimme meter meet en er geen fysieke batterij is; het zelfverbruik is dan zonneproductie − teruglevering, en wordt alleen getoond als beide dagwaarden geldig en consistent zijn.
 - Laat `timezone`, model en budget staan. Voor testen zonder AI mag `ai.enabled` op `false`.
 
 ### 2. Credentials buiten Git
@@ -92,7 +112,7 @@ sudo systemd-run --unit=stalman-ai-analyst-local --wait --pipe \
   --config /etc/stalman-ai-analyst.json --state-dir /var/lib/stalman-ai-analyst --local-only
 ```
 
-Controleer lokaal de nieuwste `summary-*.json` in de statusmap: juiste rapportdag, gemeten eenheden, `quality`, beschikbare uurbuckets en referentiedagen. Niet-OK waarden worden niet verzonnen. Bij minder dan dertig dagen historie ontbreekt de 30-daagse vergelijking terecht. Deel deze bestanden niet ongeredigeerd.
+Controleer lokaal de nieuwste `summary-*.json` in de statusmap: juiste rapportdag, gemeten eenheden, `quality`, beschikbare uurbuckets (`hourly`, `night`) en referentiedagen. Niet-OK waarden worden niet verzonnen. Bij minder dan zeven dagen historie ontbreken de vergelijkingen terecht. De uitvoer van `--local-only` toont daarnaast een voorbeeld van het Telegram-bericht met de lokale terugvalzinnen (alleen als minstens één sensor `share_with_telegram` heeft); er wordt niets verstuurd. Technische meldingen verschijnen op stderr. Deel deze bestanden niet ongeredigeerd.
 
 ### 4. Service testen en timer inschakelen
 
