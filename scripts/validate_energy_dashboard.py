@@ -46,7 +46,7 @@ for view in dash['views']:
             if card['type'].startswith('energy-'):
                 assert card['collection_key'] in {'energy_stalman', 'energy_stalman_overzicht'}
             if 'entity' in card:
-                assert card['entity'].startswith('sensor.')
+                assert card['entity'].startswith(('sensor.', 'switch.'))
             assert not any(k in card for k in ['hold_action', 'double_tap_action'])
 
 text = '\n'.join((ROOT / p).read_text() for p in paths[:2])

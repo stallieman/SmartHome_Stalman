@@ -35,6 +35,13 @@ Gericht gecontroleerd via SSH op 2026-10-30. Registervermelding bevestigt geen a
 | `sensor.stalman_total_energy_today` | kWh | Bestaand · ingeschakeld |
 | `sensor.stalman_total_output_power` | W | Bestaand · ingeschakeld |
 | `sensor.stalman_woningvermogen` | W | Nieuw lokaal package |
+| `sensor.tapo_p115_kantoor_stroom` | A | Tapo P115 Kantoor (TP-Link) |
+| `sensor.tapo_p115_kantoor_huidig_gebruik` | W | Tapo P115 Kantoor (TP-Link) |
+| `sensor.tapo_p115_kantoor_signaalniveau` | — | Tapo P115 Kantoor (TP-Link) |
+| `sensor.tapo_p115_kantoor_this_month_s_consumption` | kWh | Tapo P115 Kantoor (TP-Link) |
+| `sensor.tapo_p115_kantoor_today_s_consumption` | kWh | Tapo P115 Kantoor (TP-Link) |
+| `sensor.tapo_p115_kantoor_spanning` | V | Tapo P115 Kantoor (TP-Link) |
+| `switch.tapo_p115_kantoor` | aan/uit | Tapo P115 Kantoor (TP-Link) |
 
 ## Nieuwe dagwaarden voor Overzicht
 
