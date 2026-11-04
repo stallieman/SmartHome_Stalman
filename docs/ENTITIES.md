@@ -42,6 +42,13 @@ Gericht gecontroleerd via SSH op 2026-10-30. Registervermelding bevestigt geen a
 | `sensor.tapo_p115_kantoor_today_s_consumption` | kWh | Tapo P115 Kantoor (TP-Link) |
 | `sensor.tapo_p115_kantoor_spanning` | V | Tapo P115 Kantoor (TP-Link) |
 | `switch.tapo_p115_kantoor` | aan/uit | Tapo P115 Kantoor (TP-Link) |
+| `sensor.tapo_p115_media_stroom` | A | Tapo P115 Media (TP-Link) |
+| `sensor.tapo_p115_media_huidig_gebruik` | W | Tapo P115 Media (TP-Link) |
+| `sensor.tapo_p115_media_signaalniveau` | — | Tapo P115 Media (TP-Link) |
+| `sensor.tapo_p115_media_this_month_s_consumption` | kWh | Tapo P115 Media (TP-Link) |
+| `sensor.tapo_p115_media_today_s_consumption` | kWh | Tapo P115 Media (TP-Link) |
+| `sensor.tapo_p115_media_spanning` | V | Tapo P115 Media (TP-Link) |
+| `switch.tapo_p115_media` | aan/uit | Tapo P115 Media (TP-Link) |
 
 ## Nieuwe dagwaarden voor Overzicht
 

@@ -173,6 +173,78 @@ views:
   - type: grid
     cards:
     - type: heading
+      heading: Woonkamer · P115 Media
+      icon: mdi:power-socket-eu
+    - type: tile
+      entity: switch.tapo_p115_media
+      name: Tapo P115 Media
+      tap_action:
+        action: more-info
+      icon_tap_action:
+        action: more-info
+      grid_options:
+        columns: 6
+        rows: auto
+    - type: tile
+      entity: sensor.tapo_p115_media_huidig_gebruik
+      name: Huidig gebruik
+      icon: mdi:flash
+      color: orange
+      tap_action:
+        action: more-info
+      grid_options:
+        columns: 6
+        rows: auto
+    - type: tile
+      entity: sensor.tapo_p115_media_today_s_consumption
+      name: Verbruik vandaag
+      icon: mdi:calendar-today
+      color: blue
+      tap_action:
+        action: more-info
+      grid_options:
+        columns: 6
+        rows: auto
+    - type: tile
+      entity: sensor.tapo_p115_media_this_month_s_consumption
+      name: Verbruik deze maand
+      icon: mdi:calendar-month
+      color: blue
+      tap_action:
+        action: more-info
+      grid_options:
+        columns: 6
+        rows: auto
+    - type: tile
+      entity: sensor.tapo_p115_media_spanning
+      name: Spanning
+      icon: mdi:sine-wave
+      tap_action:
+        action: more-info
+      grid_options:
+        columns: 6
+        rows: auto
+    - type: tile
+      entity: sensor.tapo_p115_media_stroom
+      name: Stroom
+      icon: mdi:current-ac
+      tap_action:
+        action: more-info
+      grid_options:
+        columns: 6
+        rows: auto
+    - type: tile
+      entity: sensor.tapo_p115_media_signaalniveau
+      name: Wifi-signaal
+      icon: mdi:wifi
+      tap_action:
+        action: more-info
+      grid_options:
+        columns: 6
+        rows: auto
+  - type: grid
+    cards:
+    - type: heading
       heading: Vandaag
       icon: mdi:calendar-today
     - type: markdown
