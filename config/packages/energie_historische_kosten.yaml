@@ -5,11 +5,11 @@ input_text:
     initial: '{"status":"unavailable"}'
 
 template:
-  - trigger: state
-    entity_id: input_text.stalman_historical_importcosts_summary
-    sensors:
-      stalman_historische_importkosten:
-        name: Stalman historische importkosten
+  - triggers:
+      - trigger: state
+        entity_id: input_text.stalman_historical_importcosts_summary
+    sensor:
+      - name: Stalman historische importkosten
         unique_id: stalman_historische_importkosten
         device_class: monetary
         unit_of_measurement: EUR

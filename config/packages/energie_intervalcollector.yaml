@@ -30,6 +30,8 @@ automation:
         entity_id: input_text.stalman_finance_session
       data:
         value: '{{ now().isoformat() }}'
+  - condition: template
+    value_template: "{{ trigger.id != 'sample' or states('input_text.stalman_finance_session') != '' }}"
   - variables:
       snapshot: "{% set ns = namespace(items=[]) %}\n{% for entity in ['sensor.p1_meter_energie_import', 'sensor.p1_meter_energie_export',\
         \ 'sensor.p1_meter_energie_import_tarief_1', 'sensor.p1_meter_energie_import_tarief_2', 'sensor.p1_meter_energie_export_tarief_1',\

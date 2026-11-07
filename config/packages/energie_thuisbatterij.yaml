@@ -42,63 +42,12 @@ template:
     default_entity_id: sensor.stalman_besparingsscenario
     unit_of_measurement: EUR
     device_class: monetary
-    availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'') and is_number(state_attr(''sensor.stalman_financiele_vergelijking'',
-      ''saving_eur'')) and state_attr(''sensor.stalman_financiele_vergelijking'', ''scope'') == ''billing'' }}'
-    state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''saving_eur'') | float(0) }}'
-  - name: Stalman afrekening kosten zonder batterij
-    unique_id: stalman_afrekening_kosten_zonder_batterij
-    default_entity_id: sensor.stalman_afrekening_kosten_zonder_batterij
-    device_class: monetary
-    unit_of_measurement: EUR
-    availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'') and state_attr(''sensor.stalman_financiele_vergelijking'',
-      ''scope'') == ''billing'' and is_number(state_attr(''sensor.stalman_financiele_vergelijking'', ''without_variable_eur''))
+    availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'')
+      and is_number(state_attr(''sensor.stalman_financiele_vergelijking'', ''saving_eur''))
+      and state_attr(''sensor.stalman_financiele_vergelijking'', ''scope'') == ''billing''
       }}'
-    state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''without_variable_eur'') | float(0) }}'
-    attributes:
-      start: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''start'') }}'
-      end: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''end'') }}'
-      classification: variabele kosten; gemeten P1-basis
-  - name: Stalman afrekening kosten met simulatie
-    unique_id: stalman_afrekening_kosten_met_simulatie
-    default_entity_id: sensor.stalman_afrekening_kosten_met_simulatie
-    device_class: monetary
-    unit_of_measurement: EUR
-    availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'') and state_attr(''sensor.stalman_financiele_vergelijking'',
-      ''scope'') == ''billing'' and is_number(state_attr(''sensor.stalman_financiele_vergelijking'', ''with_variable_eur''))
-      }}'
-    state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''with_variable_eur'') | float(0) }}'
-    attributes:
-      start: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''start'') }}'
-      end: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''end'') }}'
-      classification: variabele kosten; virtuele batterij is simulatie
-  - name: Stalman totaal afrekening zonder batterij
-    unique_id: stalman_totaal_afrekening_zonder_batterij
-    default_entity_id: sensor.stalman_totaal_afrekening_zonder_batterij
-    device_class: monetary
-    unit_of_measurement: EUR
-    availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'') and state_attr(''sensor.stalman_financiele_vergelijking'',
-      ''scope'') == ''billing'' and state_attr(''sensor.stalman_financiele_vergelijking'', ''fixed_costs_status'')
-      == ''confirmed'' and is_number(state_attr(''sensor.stalman_financiele_vergelijking'', ''without_total_eur'')) }}'
-    state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''without_total_eur'') | float(0) }}'
-    attributes:
-      start: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''start'') }}'
-      end: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''end'') }}'
-      fixed_costs_eur: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''fixed_costs_eur'') }}'
-      classification: variabele plus vaste kosten; alleen bij bevestigde vaste kosten
-  - name: Stalman totaal afrekening met simulatie
-    unique_id: stalman_totaal_afrekening_met_simulatie
-    default_entity_id: sensor.stalman_totaal_afrekening_met_simulatie
-    device_class: monetary
-    unit_of_measurement: EUR
-    availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'') and state_attr(''sensor.stalman_financiele_vergelijking'',
-      ''scope'') == ''billing'' and state_attr(''sensor.stalman_financiele_vergelijking'', ''fixed_costs_status'')
-      == ''confirmed'' and is_number(state_attr(''sensor.stalman_financiele_vergelijking'', ''with_total_eur'')) }}'
-    state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''with_total_eur'') | float(0) }}'
-    attributes:
-      start: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''start'') }}'
-      end: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''end'') }}'
-      fixed_costs_eur: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''fixed_costs_eur'') }}'
-      classification: variabele plus vaste kosten; virtuele batterij is simulatie
+    state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''saving_eur'')
+      | float(0) }}'
   - name: Stalman huis vandaag
     unique_id: stalman_huis_vandaag
     default_entity_id: sensor.stalman_huis_vandaag
@@ -107,78 +56,172 @@ template:
     availability: '{{ is_number(states(''sensor.stalman_import_vandaag'')) and is_number(states(''sensor.stalman_export_vandaag''))
       and is_number(states(''sensor.stalman_zon_vandaag'')) }}'
     state: '{{ ([0, states(''sensor.stalman_import_vandaag'') | float(0) + states(''sensor.stalman_zon_vandaag'')
-      | float(0) - states(''sensor.stalman_export_vandaag'') | float(0)] | max) | round(3) }}'
+      | float(0) - states(''sensor.stalman_export_vandaag'') | float(0)] | max) |
+      round(3) }}'
   - name: Stalman batterijbesparing vandaag
     unique_id: stalman_batterijbesparing_vandaag
     default_entity_id: sensor.stalman_batterijbesparing_vandaag
     unit_of_measurement: EUR
     device_class: monetary
-    availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'') and is_number(state_attr(''sensor.stalman_financiele_vergelijking'',
-      ''saving_eur'')) and state_attr(''sensor.stalman_financiele_vergelijking'', ''scope'') == ''day'' and state_attr(''sensor.stalman_financiele_vergelijking'',
-      ''start'') == now().date().isoformat() and as_timestamp(now()) - 900 <= as_timestamp(state_attr(''sensor.stalman_financiele_vergelijking'',
+    availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'')
+      and is_number(state_attr(''sensor.stalman_financiele_vergelijking'', ''saving_eur''))
+      and state_attr(''sensor.stalman_financiele_vergelijking'', ''scope'') == ''day''
+      and state_attr(''sensor.stalman_financiele_vergelijking'', ''start'') == now().date().isoformat()
+      and as_timestamp(now()) - 900 <= as_timestamp(state_attr(''sensor.stalman_financiele_vergelijking'',
       ''observed_until''), 0) <= as_timestamp(now()) }}'
-    state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''saving_eur'') | float(0) }}'
+    state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''saving_eur'')
+      | float(0) }}'
+- sensor:
+  - name: Stalman afrekening kosten zonder batterij
+    unique_id: stalman_afrekening_kosten_zonder_batterij
+    default_entity_id: sensor.stalman_afrekening_kosten_zonder_batterij
+    device_class: monetary
+    unit_of_measurement: EUR
+    availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'')
+      and state_attr(''sensor.stalman_financiele_vergelijking'', ''scope'') == ''billing''
+      and is_number(state_attr(''sensor.stalman_financiele_vergelijking'', ''without_variable_eur''))
+      }}'
+    state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''without_variable_eur'')
+      | float(0) }}'
+    attributes:
+      start: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''start'')
+        }}'
+      end: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''end'') }}'
+      classification: variabele kosten; gemeten P1-basis
+  - name: Stalman afrekening kosten met simulatie
+    unique_id: stalman_afrekening_kosten_met_simulatie
+    default_entity_id: sensor.stalman_afrekening_kosten_met_simulatie
+    device_class: monetary
+    unit_of_measurement: EUR
+    availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'')
+      and state_attr(''sensor.stalman_financiele_vergelijking'', ''scope'') == ''billing''
+      and is_number(state_attr(''sensor.stalman_financiele_vergelijking'', ''with_variable_eur''))
+      }}'
+    state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''with_variable_eur'')
+      | float(0) }}'
+    attributes:
+      start: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''start'')
+        }}'
+      end: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''end'') }}'
+      classification: variabele kosten; virtuele batterij is simulatie
+  - name: Stalman totaal afrekening zonder batterij
+    unique_id: stalman_totaal_afrekening_zonder_batterij
+    default_entity_id: sensor.stalman_totaal_afrekening_zonder_batterij
+    device_class: monetary
+    unit_of_measurement: EUR
+    availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'')
+      and state_attr(''sensor.stalman_financiele_vergelijking'', ''scope'') == ''billing''
+      and state_attr(''sensor.stalman_financiele_vergelijking'', ''fixed_costs_status'')
+      == ''confirmed'' and is_number(state_attr(''sensor.stalman_financiele_vergelijking'',
+      ''without_total_eur'')) }}'
+    state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''without_total_eur'')
+      | float(0) }}'
+    attributes:
+      start: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''start'')
+        }}'
+      end: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''end'') }}'
+      fixed_costs_eur: '{{ state_attr(''sensor.stalman_financiele_vergelijking'',
+        ''fixed_costs_eur'') }}'
+      classification: variabele plus vaste kosten; alleen bij bevestigde vaste kosten
+  - name: Stalman totaal afrekening met simulatie
+    unique_id: stalman_totaal_afrekening_met_simulatie
+    default_entity_id: sensor.stalman_totaal_afrekening_met_simulatie
+    device_class: monetary
+    unit_of_measurement: EUR
+    availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'')
+      and state_attr(''sensor.stalman_financiele_vergelijking'', ''scope'') == ''billing''
+      and state_attr(''sensor.stalman_financiele_vergelijking'', ''fixed_costs_status'')
+      == ''confirmed'' and is_number(state_attr(''sensor.stalman_financiele_vergelijking'',
+      ''with_total_eur'')) }}'
+    state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''with_total_eur'')
+      | float(0) }}'
+    attributes:
+      start: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''start'')
+        }}'
+      end: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''end'') }}'
+      fixed_costs_eur: '{{ state_attr(''sensor.stalman_financiele_vergelijking'',
+        ''fixed_costs_eur'') }}'
+      classification: variabele plus vaste kosten; virtuele batterij is simulatie
   - name: Stalman kosten zonder batterij vandaag
     unique_id: stalman_kosten_zonder_batterij_vandaag
     default_entity_id: sensor.stalman_kosten_zonder_batterij_vandaag
     device_class: monetary
     unit_of_measurement: EUR
-    availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'') and state_attr(''sensor.stalman_financiele_vergelijking'',
-      ''scope'') == ''day'' and state_attr(''sensor.stalman_financiele_vergelijking'', ''start'') == now().date().isoformat()
-      and is_number(state_attr(''sensor.stalman_financiele_vergelijking'', ''without_eur'')) and as_timestamp(now())
-      - 900 <= as_timestamp(state_attr(''sensor.stalman_financiele_vergelijking'', ''observed_until''), 0) <= as_timestamp(now())
-      }}'
-    state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''without_eur'') | float(0) }}'
+    availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'')
+      and state_attr(''sensor.stalman_financiele_vergelijking'', ''scope'') == ''day''
+      and state_attr(''sensor.stalman_financiele_vergelijking'', ''start'') == now().date().isoformat()
+      and is_number(state_attr(''sensor.stalman_financiele_vergelijking'', ''without_eur''))
+      and as_timestamp(now()) - 900 <= as_timestamp(state_attr(''sensor.stalman_financiele_vergelijking'',
+      ''observed_until''), 0) <= as_timestamp(now()) }}'
+    state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''without_eur'')
+      | float(0) }}'
   - name: Stalman kosten met batterij vandaag
     unique_id: stalman_kosten_met_batterij_vandaag
     default_entity_id: sensor.stalman_kosten_met_batterij_vandaag
     device_class: monetary
     unit_of_measurement: EUR
-    availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'') and state_attr(''sensor.stalman_financiele_vergelijking'',
-      ''scope'') == ''day'' and state_attr(''sensor.stalman_financiele_vergelijking'', ''start'') == now().date().isoformat()
-      and is_number(state_attr(''sensor.stalman_financiele_vergelijking'', ''with_eur'')) and as_timestamp(now())
-      - 900 <= as_timestamp(state_attr(''sensor.stalman_financiele_vergelijking'', ''observed_until''), 0) <= as_timestamp(now())
-      }}'
-    state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''with_eur'') | float(0) }}'
+    availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'')
+      and state_attr(''sensor.stalman_financiele_vergelijking'', ''scope'') == ''day''
+      and state_attr(''sensor.stalman_financiele_vergelijking'', ''start'') == now().date().isoformat()
+      and is_number(state_attr(''sensor.stalman_financiele_vergelijking'', ''with_eur''))
+      and as_timestamp(now()) - 900 <= as_timestamp(state_attr(''sensor.stalman_financiele_vergelijking'',
+      ''observed_until''), 0) <= as_timestamp(now()) }}'
+    state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''with_eur'')
+      | float(0) }}'
   - name: Stalman meetvenster zonder
     unique_id: stalman_meetvenster_zonder
     default_entity_id: sensor.stalman_meetvenster_zonder
     device_class: monetary
     unit_of_measurement: EUR
-    availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'') and state_attr(''sensor.stalman_financiele_vergelijking'',
-      ''scope'') == ''window'' and is_number(state_attr(''sensor.stalman_financiele_vergelijking'', ''without_eur''))
+    availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'')
+      and state_attr(''sensor.stalman_financiele_vergelijking'', ''scope'') == ''window''
+      and is_number(state_attr(''sensor.stalman_financiele_vergelijking'', ''without_eur''))
       }}'
-    state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''without_eur'') | float(0) }}'
+    state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''without_eur'')
+      | float(0) }}'
     attributes:
-      measured_from: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''measured_from'') }}'
-      observed_until: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''observed_until'') }}'
-      classification: schatting; virtuele batterij is simulatie; uitsluitend aangegeven meetvenster
+      measured_from: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''measured_from'')
+        }}'
+      observed_until: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''observed_until'')
+        }}'
+      classification: schatting; virtuele batterij is simulatie; uitsluitend aangegeven
+        meetvenster
   - name: Stalman meetvenster met
     unique_id: stalman_meetvenster_met
     default_entity_id: sensor.stalman_meetvenster_met
     device_class: monetary
     unit_of_measurement: EUR
-    availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'') and state_attr(''sensor.stalman_financiele_vergelijking'',
-      ''scope'') == ''window'' and is_number(state_attr(''sensor.stalman_financiele_vergelijking'', ''with_eur''))
+    availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'')
+      and state_attr(''sensor.stalman_financiele_vergelijking'', ''scope'') == ''window''
+      and is_number(state_attr(''sensor.stalman_financiele_vergelijking'', ''with_eur''))
       }}'
-    state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''with_eur'') | float(0) }}'
+    state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''with_eur'')
+      | float(0) }}'
     attributes:
-      measured_from: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''measured_from'') }}'
-      observed_until: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''observed_until'') }}'
-      classification: schatting; virtuele batterij is simulatie; uitsluitend aangegeven meetvenster
+      measured_from: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''measured_from'')
+        }}'
+      observed_until: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''observed_until'')
+        }}'
+      classification: schatting; virtuele batterij is simulatie; uitsluitend aangegeven
+        meetvenster
   - name: Stalman meetvenster verschil
     unique_id: stalman_meetvenster_verschil
     default_entity_id: sensor.stalman_meetvenster_verschil
     device_class: monetary
     unit_of_measurement: EUR
-    availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'') and state_attr(''sensor.stalman_financiele_vergelijking'',
-      ''scope'') == ''window'' and is_number(state_attr(''sensor.stalman_financiele_vergelijking'', ''saving_eur''))
+    availability: '{{ is_state(''sensor.stalman_financiele_vergelijking'', ''ok'')
+      and state_attr(''sensor.stalman_financiele_vergelijking'', ''scope'') == ''window''
+      and is_number(state_attr(''sensor.stalman_financiele_vergelijking'', ''saving_eur''))
       }}'
-    state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''saving_eur'') | float(0) }}'
+    state: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''saving_eur'')
+      | float(0) }}'
     attributes:
-      measured_from: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''measured_from'') }}'
-      observed_until: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''observed_until'') }}'
-      classification: schatting; virtuele batterij is simulatie; uitsluitend aangegeven meetvenster
+      measured_from: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''measured_from'')
+        }}'
+      observed_until: '{{ state_attr(''sensor.stalman_financiele_vergelijking'', ''observed_until'')
+        }}'
+      classification: schatting; virtuele batterij is simulatie; uitsluitend aangegeven
+        meetvenster
 utility_meter:
   stalman_import_vandaag:
     source: sensor.p1_meter_energie_import
@@ -209,7 +252,8 @@ command_line:
 - sensor:
     name: Stalman financiele vergelijking
     unique_id: stalman_financiele_vergelijking
-    command: python3 /config/energy_finance/compare.py --config /config/energy_finance/tariffs.json --input /config/energy_finance/observations.json
+    command: python3 /config/energy_finance/compare.py --config /config/energy_finance/tariffs.json
+      --input /config/energy_finance/observations.json
     scan_interval: 300
     value_template: '{{ value_json.status }}'
     json_attributes:
@@ -231,3 +275,18 @@ command_line:
     - observed_until
     - measured_from
     - coverage_kind
+- sensor:
+    name: Stalman indicatieve simulatie 2027
+    unique_id: stalman_indicatieve_simulatie_2027
+    command: python3 /config/energy_finance/compare.py --config /config/energy_finance/tariffs.json
+      --input /config/energy_finance/observations.json --scenario-2027
+    scan_interval: 300
+    value_template: '{{ value_json.status }}'
+    json_attributes:
+    - reason
+    - classification
+    - measured_from
+    - observed_until
+    - without_eur
+    - with_eur
+    - saving_eur

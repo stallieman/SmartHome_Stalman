@@ -10,6 +10,13 @@ automation: !include automations.yaml
 script: !include scripts.yaml
 scene: !include scenes.yaml
 
+# Energie & Thuisbatterij: separate YAML dashboard
+homeassistant:
+  packages:
+    stalman_energie: !include packages/energie_thuisbatterij.yaml
+    stalman_audit: !include packages/energie_audit_adapter.yaml
+    stalman_intervalcollector: !include packages/energie_intervalcollector.yaml
+    stalman_historical_import_costs: !include packages/energie_historische_kosten.yaml
 lovelace:
   dashboards:
     ring-cameras:
@@ -19,3 +26,10 @@ lovelace:
       show_in_sidebar: true
       require_admin: false
       filename: dashboards/ring_cameras.yaml
+    energie-thuisbatterij-yaml:
+      mode: yaml
+      title: Energie & Thuisbatterij · YAML
+      icon: mdi:home-battery
+      show_in_sidebar: true
+      require_admin: false
+      filename: dashboards/energie_thuisbatterij.yaml

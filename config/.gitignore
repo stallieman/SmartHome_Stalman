@@ -1,0 +1,37 @@
+# Gevoelige gegevens
+secrets.yaml
+.storage/
+.cloud/
+*.env
+.env*
+*.pem
+*.key
+*.token
+
+# Home Assistant runtime
+.cache/
+deps/
+tts/
+__pycache__/
+*.pyc
+.ha_run.lock
+.HA_VERSION
+home-assistant.log*
+home-assistant_v2.db*
+*.db-shm
+*.db-wal
+
+# Lokale data en tijdelijke bestanden
+*.log
+*.sqlite
+*.sqlite3
+
+# Back-ups
+*.bak
+*.bak-*
+
+# Financiële runtimegegevens
+energy_finance/observations.json
+energy_finance/.observations.*
+energy_finance/collector.json
+energy_finance/*.sqlite*

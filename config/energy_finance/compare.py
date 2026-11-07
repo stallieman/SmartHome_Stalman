@@ -209,6 +209,62 @@ def calculate(config, observation):
     return result
 
 
+def calculate_scenario_2027(config, observation):
+    """Price a certified actual window using explicitly hypothetical 2027 terms."""
+    require(observation.get('coverage_confirmed') is True, 'Coverage not confirmed')
+    require(observation.get('paired_grid_deltas_confirmed') is True, 'Paired grid deltas not confirmed')
+    require(observation.get('scope') == 'window', 'A certified measurement window is required')
+    start, end = day(observation.get('start')), day(observation.get('end'))
+    require(end == start + timedelta(days=1), 'Measurement window must belong to one day')
+    try:
+        measured = datetime.fromisoformat(observation.get('measured_from', ''))
+        observed = datetime.fromisoformat(observation.get('observed_until', ''))
+        require(measured.tzinfo is not None and observed.tzinfo is not None, 'Window timestamps require timezone')
+        measured, observed = measured.astimezone(ZoneInfo('Europe/Amsterdam')), observed.astimezone(ZoneInfo('Europe/Amsterdam'))
+        require(measured.date() == start and observed.date() == start and measured < observed, 'Invalid measurement window')
+    except (ValueError, TypeError) as exc:
+        raise Unavailable('Invalid measurement window') from exc
+    coverage = observation.get('coverage_kind')
+    require(coverage in ('from_midnight', 'contiguous_partial_day'), 'Invalid window coverage')
+    midnight = measured.replace(hour=0, minute=0, second=0, microsecond=0)
+    require((coverage == 'from_midnight') == (measured == midnight), 'Window coverage does not match start')
+    current = [p for p in config.get('plans', []) if p.get('id') == 'essent-2026-current-contract']
+    future = [p for p in config.get('plans', []) if p.get('id') == 'essent-2027-contract']
+    require(len(current) == 1 and len(future) == 1, 'Missing scenario tariff assumptions')
+    current, future = current[0], future[0]
+    require(current.get('discount_basis') == 'variable_delivery_only' and
+            nonnegative(current.get('delivery_discount_fraction')) == Decimal('0.10'), 'Invalid discount assumption')
+    rates = {}
+    for tariff in ('normal', 'offpeak'):
+        item = current['import'][tariff]
+        require(item.get('quote_includes_vat') is True and item.get('quote_includes_discount') is False,
+                'Import tariff assumption must be gross and before discount')
+        delivery = nonnegative(item['user_provided_delivery_gross'])
+        tax = nonnegative(item['user_provided_energy_tax_gross'])
+        require(delivery + tax == nonnegative(item['quoted_total']), 'Import tariff components do not match')
+        rates[tariff] = delivery * Decimal('0.90') + tax
+    credit = nonnegative(future.get('export_credit_cash_per_kwh'))
+    fee = nonnegative(future.get('export_fee_cash_per_kwh'))
+    totals = {}
+    for name in ('without', 'with'):
+        values = observation[name]
+        imports = {t: nonnegative(values['import_kwh'][t]) for t in rates}
+        export = nonnegative(values['export_kwh'])
+        totals[name] = sum(imports[t] * rates[t] for t in rates) + export * (fee - credit)
+    return {'status': 'ok', 'classification': 'Indicatieve simulatie met 2027-aannames',
+            'measured_from': measured.isoformat(), 'observed_until': observed.isoformat(),
+            'without_eur': money(totals['without']), 'with_eur': money(totals['with']),
+            'saving_eur': money(totals['without'] - totals['with'])}
+
+
+def scenario_2027_report(config, observation):
+    try:
+        return calculate_scenario_2027(config, observation)
+    except (Unavailable, KeyError, TypeError, ValueError) as exc:
+        return {'status': 'unavailable', 'reason': str(exc),
+                'classification': 'Indicatieve simulatie met 2027-aannames'}
+
+
 def report(config, observation):
     try:
         return calculate(config, observation)
@@ -225,9 +281,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=Path, required=True)
     parser.add_argument('--input', type=Path, required=True)
+    parser.add_argument('--scenario-2027', action='store_true')
     args = parser.parse_args()
     try:
-        result = report(json.loads(args.config.read_text()), json.loads(args.input.read_text()))
+        calculate_report = scenario_2027_report if args.scenario_2027 else report
+        result = calculate_report(json.loads(args.config.read_text()), json.loads(args.input.read_text()))
     except (OSError, ValueError) as exc:
         result = {'status': 'unavailable', 'reason': str(exc),
                   'without_eur': None, 'with_eur': None,

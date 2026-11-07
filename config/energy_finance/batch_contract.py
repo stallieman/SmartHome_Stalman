@@ -9,7 +9,10 @@ try:
 except ImportError:
     from collector import InvalidSample, numeric, timestamp, TZ
 
-SOURCE_SHA = 'a85306a06262e5d9ec27099b302dd5e9b24c0b3717ce0e547e30f3b381ce32b6'
+# Legacy field name upstream_sha256 identifies the installed instrumented simulator source.
+# Bound float-counter noise only; 1e-9 kWh is 10^-6 of a 0.001 kWh P1 step.
+IMPORT_ROUNDING_TOLERANCE_KWH = Decimal('0.000000001')
+SOURCE_SHA = 'df0022ed0f8d2bbca3ee015c801527483046d869f3d129081e36dc35bdc9d429'
 
 
 def require(condition, reason):
@@ -66,7 +69,7 @@ def consume(config, batches):
         require(not used_codes or used_codes == [tariff['code']], 'active_tariff_disagrees_with_p1_registers')
         real_import = numeric(batch['measured_after']['import']) - numeric(batch['measured_before']['import'])
         sim_import = numeric(batch['simulated_after']['import']) - numeric(batch['simulated_before']['import'])
-        require(sim_import <= real_import, 'additional_simulated_grid_charging_has_no_register_allocation')
+        require(sim_import <= real_import + IMPORT_ROUNDING_TOLERANCE_KWH, 'additional_simulated_grid_charging_has_no_register_allocation')
         if previous:
             require(batch['generation'] == previous['generation'], 'generation_changed')
             require(batch['sequence'] == previous['sequence'] + 1, 'missing_or_duplicate_batch')

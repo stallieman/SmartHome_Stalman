@@ -529,6 +529,30 @@ views:
         columns: 12
         rows: auto
     - type: markdown
+      content: >-
+        **Indicatieve simulatie met 2027-aannames**
+
+        {% set entity = 'sensor.stalman_indicatieve_simulatie_2027' %}
+        {% set observed = as_timestamp(state_attr(entity, 'observed_until'), 0) %}
+        {% if is_state(entity, 'ok') and 0 <= as_timestamp(now()) - observed <= 900 and is_number(state_attr(entity, 'without_eur')) and is_number(state_attr(entity, 'with_eur')) and is_number(state_attr(entity, 'saving_eur')) %}
+        Zonder batterij: **€ {{ state_attr(entity, 'without_eur') | replace('.', ',') }}**
+
+        Met batterij: **€ {{ state_attr(entity, 'with_eur') | replace('.', ',') }}**
+
+        Verschil: **€ {{ state_attr(entity, 'saving_eur') | replace('.', ',') }}**
+
+        Meetvenster: {{ as_timestamp(state_attr(entity, 'measured_from')) | timestamp_custom('%d-%m-%Y %H:%M:%S') }} – {{ observed | timestamp_custom('%d-%m-%Y %H:%M:%S') }}.
+
+        Variabele kosten; huidige stroomtarieven en 10% korting op levering als aannames, met teruglevertarieven voor 2027. Geen jaarprognose.
+        {% else %}
+        **Nog niet beschikbaar:** een recent, gevalideerd meetvenster en volledige scenarioaannames zijn nodig.
+        {% endif %}
+      entity_id:
+        - sensor.stalman_indicatieve_simulatie_2027
+      grid_options:
+        columns: 12
+        rows: auto
+    - type: markdown
       content: '**Batterijbesparing · simulatie: nog niet beschikbaar.** Contractgegevens en gekoppelde meetperiode ontbreken.'
       grid_options:
         columns: 12

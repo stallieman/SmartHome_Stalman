@@ -1,0 +1,112 @@
+"""Switch platform for Battery Sim."""
+import logging
+
+from homeassistant.components.switch import SwitchEntity
+from homeassistant.const import STATE_OFF, STATE_ON
+from homeassistant.helpers.restore_state import RestoreEntity
+
+from .const import DOMAIN, CONF_BATTERY, PAUSE_BATTERY
+from .helpers import battery_entity_name
+
+_LOGGER = logging.getLogger(__name__)
+
+BATTERY_SWITCHES = [
+    {
+        "name": PAUSE_BATTERY,
+        "key": "pause_battery_enabled",
+        "icon": "mdi:pause",
+    }
+]
+
+
+async def async_setup_entry(hass, config_entry, async_add_entities):
+    handle = hass.data[DOMAIN][config_entry.entry_id]
+
+    battery_switches = [
+        BatterySwitch(handle, switch["name"], switch["key"], switch["icon"])
+        for switch in BATTERY_SWITCHES
+    ]
+    async_add_entities(battery_switches)
+
+    return True
+
+
+async def async_setup_platform(
+    hass, configuration, async_add_entities, discovery_info=None
+):
+    if discovery_info is None:
+        _LOGGER.error("This platform is only available through discovery")
+        return
+
+    for conf in discovery_info:
+        battery = conf[CONF_BATTERY]
+        handle = hass.data[DOMAIN][battery]
+
+    battery_switches = [
+        BatterySwitch(handle, switch["name"], switch["key"], switch["icon"])
+        for switch in BATTERY_SWITCHES
+    ]
+    async_add_entities(battery_switches)
+    return True
+
+
+class BatterySwitch(RestoreEntity, SwitchEntity):
+    """Switch to pause or resume the simulated battery."""
+
+    def __init__(self, handle, switch_type, key, icon):
+        self.handle = handle
+        self._key = key
+        self._icon = icon
+        self._switch_type = switch_type
+        self._device_name = handle._name
+        self._device_identifier = handle.device_identifier
+        self._name = battery_entity_name(
+            handle._name, switch_type.replace("_", " ").capitalize()
+        )
+        self._attr_unique_id = f"{handle._name} - {switch_type}"
+        self._type = type
+
+    @property
+    def unique_id(self):
+        return self._attr_unique_id
+
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def device_info(self):
+        return self.handle.device_info
+
+    @property
+    def icon(self):
+        return self._icon
+
+    @property
+    def is_on(self):
+        return self.handle._switches[self._switch_type]
+
+    async def async_turn_on(self, **kwargs):
+        self.handle._switches[self._switch_type] = True
+        self.handle.async_trigger_update()
+        self.schedule_update_ha_state(True)
+        return True
+
+    async def async_turn_off(self, **kwargs):
+        self.handle._switches[self._switch_type] = False
+        self.handle.async_trigger_update()
+        self.schedule_update_ha_state(True)
+        return True
+
+    async def async_added_to_hass(self):
+        """Restore the switch position from before the last restart."""
+        await super().async_added_to_hass()
+
+        state = await self.async_get_last_state()
+        if state is None or state.state not in (STATE_ON, STATE_OFF):
+            return
+
+        self.handle._switches[self._switch_type] = state.state == STATE_ON
+        _LOGGER.debug(
+            "Restored %s for '%s' to %s", self._key, self._name, state.state
+        )
