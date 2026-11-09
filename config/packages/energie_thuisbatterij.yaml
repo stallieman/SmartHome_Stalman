@@ -290,3 +290,21 @@ command_line:
     - without_eur
     - with_eur
     - saving_eur
+- sensor:
+    name: Stalman indicatieve simulatie 2027 14 dagen
+    unique_id: stalman_indicatieve_simulatie_2027_14_dagen
+    command: python3 /config/energy_finance/compare.py --config /config/energy_finance/tariffs.json
+      --scenario-2027-14d --collector-config /config/energy_finance/collector.json
+      --audit-database /config/energy_finance/intervals.sqlite
+    scan_interval: 300
+    value_template: '{{ value_json.status }}'
+    json_attributes:
+    - reason
+    - classification
+    - period_start
+    - period_end
+    - valid_hours
+    - coverage_percent
+    - without_eur
+    - with_eur
+    - saving_eur

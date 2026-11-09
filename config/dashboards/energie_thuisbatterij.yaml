@@ -302,31 +302,6 @@ views:
         columns: 6
         rows: auto
     - type: markdown
-      content: 'Batterijbesparing · simulatie
-
-
-        **Nog niet beschikbaar**'
-      grid_options:
-        columns: 6
-        rows: auto
-    - type: markdown
-      content: >-
-        **Indicatieve bruto stroomafnamekosten vóór saldering**
-
-        {% set value = states('sensor.stalman_historische_importkosten') %}
-        {% if is_number(value) %}
-        # € {{ value | float | round(2) | string | replace('.', ',') }}
-
-        Datum: {{ state_attr('sensor.stalman_historische_importkosten', 'date') }} · Meetdekking: {{ state_attr('sensor.stalman_historische_importkosten', 'coverage') }}
-        {% else %}
-        **Nog niet beschikbaar**
-        {% endif %}
-      entity_id:
-        - sensor.stalman_historische_importkosten
-      grid_options:
-        columns: 12
-        rows: auto
-    - type: markdown
       content: 'Dagmeters: eerste dag vanaf installatie.'
       text_only: true
       grid_options:
@@ -508,62 +483,28 @@ views:
         name: Gesimuleerde export
   - type: grid
     cards:
-    - type: heading
-      heading: Financiën
-      icon: mdi:currency-eur
     - type: markdown
-      content: >-
-        **Indicatieve bruto stroomafnamekosten vóór saldering**
+      content: |-
+        ### Indicatieve 2027-simulatie
+        Laatste 14 dagen · 336 uur
 
-        {% set value = states('sensor.stalman_historische_importkosten') %}
-        {% if is_number(value) %}
-        # € {{ value | float | round(2) | string | replace('.', ',') }}
+        {% set entity = 'sensor.stalman_indicatieve_simulatie_2027_14_dagen' %}
+        {% set end = as_timestamp(state_attr(entity, 'period_end'), 0) %}
+        {% set ready = is_state(entity, 'ok') and 0 <= as_timestamp(now()) - end <= 900 and is_number(state_attr(entity, 'without_eur')) and is_number(state_attr(entity, 'with_eur')) and is_number(state_attr(entity, 'saving_eur')) and is_number(state_attr(entity, 'valid_hours')) and is_number(state_attr(entity, 'coverage_percent')) %}
+        | | |
+        |:--|--:|
+        | Zonder batterij | {{ '€ ' ~ (state_attr(entity, 'without_eur') | string | replace('.', ',')) if ready else '—' }} |
+        | Met batterij | {{ '€ ' ~ (state_attr(entity, 'with_eur') | string | replace('.', ',')) if ready else '—' }} |
+        | **Besparing** | **{{ '€ ' ~ (state_attr(entity, 'saving_eur') | string | replace('.', ',')) if ready else '—' }}** |
+        | Geldige meeturen | {{ (state_attr(entity, 'valid_hours') | string | replace('.', ',')) ~ ' uur' if ready else '—' }} |
+        | Meetdekking | {{ (state_attr(entity, 'coverage_percent') | string | replace('.', ',')) ~ '%' if ready else '—' }} |
 
-        Datum: {{ state_attr('sensor.stalman_historische_importkosten', 'date') }} · Meetdekking: {{ state_attr('sensor.stalman_historische_importkosten', 'coverage') }}
-        {% else %}
-        **Nog niet beschikbaar**
+        {% if not ready %}
+        Er zijn nog geen recente, gevalideerde bedragen voor dit meetvenster.
         {% endif %}
+        Bedragen gelden alleen voor gevalideerde meeturen, met de bestaande 2027-aannames.
       entity_id:
-        - sensor.stalman_historische_importkosten
-      grid_options:
-        columns: 12
-        rows: auto
-    - type: markdown
-      content: >-
-        **Indicatieve simulatie met 2027-aannames**
-
-        {% set entity = 'sensor.stalman_indicatieve_simulatie_2027' %}
-        {% set observed = as_timestamp(state_attr(entity, 'observed_until'), 0) %}
-        {% if is_state(entity, 'ok') and 0 <= as_timestamp(now()) - observed <= 900 and is_number(state_attr(entity, 'without_eur')) and is_number(state_attr(entity, 'with_eur')) and is_number(state_attr(entity, 'saving_eur')) %}
-        Zonder batterij: **€ {{ state_attr(entity, 'without_eur') | replace('.', ',') }}**
-
-        Met batterij: **€ {{ state_attr(entity, 'with_eur') | replace('.', ',') }}**
-
-        Verschil: **€ {{ state_attr(entity, 'saving_eur') | replace('.', ',') }}**
-
-        Meetvenster: {{ as_timestamp(state_attr(entity, 'measured_from')) | timestamp_custom('%d-%m-%Y %H:%M:%S') }} – {{ observed | timestamp_custom('%d-%m-%Y %H:%M:%S') }}.
-
-        Variabele kosten; huidige stroomtarieven en 10% korting op levering als aannames, met teruglevertarieven voor 2027. Geen jaarprognose.
-        {% else %}
-        **Nog niet beschikbaar:** een recent, gevalideerd meetvenster en volledige scenarioaannames zijn nodig.
-        {% endif %}
-      entity_id:
-        - sensor.stalman_indicatieve_simulatie_2027
-      grid_options:
-        columns: 12
-        rows: auto
-    - type: markdown
-      content: '**Batterijbesparing · simulatie: nog niet beschikbaar.** Contractgegevens en gekoppelde meetperiode ontbreken.'
-      grid_options:
-        columns: 12
-        rows: auto
-    - type: markdown
-      content: '**Kosten met/zonder batterij: nog niet beschikbaar.** Financiële validatie vereist bevestigde contractperiode en gelijktijdige metingen.'
-      grid_options:
-        columns: 12
-        rows: auto
-    - type: markdown
-      content: '**Terugverdientijd: nog niet beschikbaar.**'
+        - sensor.stalman_indicatieve_simulatie_2027_14_dagen
       grid_options:
         columns: 12
         rows: auto

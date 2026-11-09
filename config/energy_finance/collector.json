@@ -34,9 +34,9 @@
   },
   "pairing_mode": "blocked_missing_simulator_source_window",
   "audit": {
-    "enabled": false,
+    "enabled": true,
     "battery_id": "01M678WZZ6M086SEWQ1QENFZ8Z",
-    "status": "proposal_not_installed_or_approved",
-    "expected_helper_sha256": "b5e61c635b572cc965c52aa94c824b15a4e57e277ae75a17d834594e8f4561c9"
+    "status": "instrumented_source_hash_pinned",
+    "expected_helper_sha256": "ad904d2a7b1bc72695b505d58742dd28b74fd6d7b92ee5a1452d9c85560623dc"
   }
 }

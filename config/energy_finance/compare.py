@@ -1,6 +1,9 @@
 """Local, fail-closed energy cost comparison. No networking or HA state access."""
 import argparse
 import json
+import hashlib
+import sqlite3
+from collections import defaultdict
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
@@ -209,25 +212,8 @@ def calculate(config, observation):
     return result
 
 
-def calculate_scenario_2027(config, observation):
-    """Price a certified actual window using explicitly hypothetical 2027 terms."""
-    require(observation.get('coverage_confirmed') is True, 'Coverage not confirmed')
-    require(observation.get('paired_grid_deltas_confirmed') is True, 'Paired grid deltas not confirmed')
-    require(observation.get('scope') == 'window', 'A certified measurement window is required')
-    start, end = day(observation.get('start')), day(observation.get('end'))
-    require(end == start + timedelta(days=1), 'Measurement window must belong to one day')
-    try:
-        measured = datetime.fromisoformat(observation.get('measured_from', ''))
-        observed = datetime.fromisoformat(observation.get('observed_until', ''))
-        require(measured.tzinfo is not None and observed.tzinfo is not None, 'Window timestamps require timezone')
-        measured, observed = measured.astimezone(ZoneInfo('Europe/Amsterdam')), observed.astimezone(ZoneInfo('Europe/Amsterdam'))
-        require(measured.date() == start and observed.date() == start and measured < observed, 'Invalid measurement window')
-    except (ValueError, TypeError) as exc:
-        raise Unavailable('Invalid measurement window') from exc
-    coverage = observation.get('coverage_kind')
-    require(coverage in ('from_midnight', 'contiguous_partial_day'), 'Invalid window coverage')
-    midnight = measured.replace(hour=0, minute=0, second=0, microsecond=0)
-    require((coverage == 'from_midnight') == (measured == midnight), 'Window coverage does not match start')
+def scenario_2027_totals(config, energy):
+    """Apply the same assumptions to unrounded validated energy totals."""
     current = [p for p in config.get('plans', []) if p.get('id') == 'essent-2026-current-contract']
     future = [p for p in config.get('plans', []) if p.get('id') == 'essent-2027-contract']
     require(len(current) == 1 and len(future) == 1, 'Missing scenario tariff assumptions')
@@ -247,10 +233,33 @@ def calculate_scenario_2027(config, observation):
     fee = nonnegative(future.get('export_fee_cash_per_kwh'))
     totals = {}
     for name in ('without', 'with'):
-        values = observation[name]
+        values = energy[name]
         imports = {t: nonnegative(values['import_kwh'][t]) for t in rates}
         export = nonnegative(values['export_kwh'])
         totals[name] = sum(imports[t] * rates[t] for t in rates) + export * (fee - credit)
+    return totals
+
+
+def calculate_scenario_2027(config, observation):
+    """Price a certified actual window using explicitly hypothetical 2027 terms."""
+    require(observation.get('coverage_confirmed') is True, 'Coverage not confirmed')
+    require(observation.get('paired_grid_deltas_confirmed') is True, 'Paired grid deltas not confirmed')
+    require(observation.get('scope') == 'window', 'A certified measurement window is required')
+    start, end = day(observation.get('start')), day(observation.get('end'))
+    require(end == start + timedelta(days=1), 'Measurement window must belong to one day')
+    try:
+        measured = datetime.fromisoformat(observation.get('measured_from', ''))
+        observed = datetime.fromisoformat(observation.get('observed_until', ''))
+        require(measured.tzinfo is not None and observed.tzinfo is not None, 'Window timestamps require timezone')
+        measured, observed = measured.astimezone(ZoneInfo('Europe/Amsterdam')), observed.astimezone(ZoneInfo('Europe/Amsterdam'))
+        require(measured.date() == start and observed.date() == start and measured < observed, 'Invalid measurement window')
+    except (ValueError, TypeError) as exc:
+        raise Unavailable('Invalid measurement window') from exc
+    coverage = observation.get('coverage_kind')
+    require(coverage in ('from_midnight', 'contiguous_partial_day'), 'Invalid window coverage')
+    midnight = measured.replace(hour=0, minute=0, second=0, microsecond=0)
+    require((coverage == 'from_midnight') == (measured == midnight), 'Window coverage does not match start')
+    totals = scenario_2027_totals(config, observation)
     return {'status': 'ok', 'classification': 'Indicatieve simulatie met 2027-aannames',
             'measured_from': measured.isoformat(), 'observed_until': observed.isoformat(),
             'without_eur': money(totals['without']), 'with_eur': money(totals['with']),
@@ -261,6 +270,80 @@ def scenario_2027_report(config, observation):
     try:
         return calculate_scenario_2027(config, observation)
     except (Unavailable, KeyError, TypeError, ValueError) as exc:
+        return {'status': 'unavailable', 'reason': str(exc),
+                'classification': 'Indicatieve simulatie met 2027-aannames'}
+
+
+def scenario_2027_14d(config, collector_config, db, end):
+    """Validate whole generations and price only complete, nonoverlapping packets."""
+    from batch_contract import consume
+    from collector import encoded, timestamp
+    require(end.tzinfo is not None, 'Window end needs timezone')
+    end = end.astimezone(ZoneInfo('UTC'))
+    start = end - timedelta(hours=336)
+    fingerprint = hashlib.sha256(encoded(collector_config).encode()).hexdigest()
+    require(collector_config.get('audit', {}).get('enabled') is True, 'Audit is disabled')
+    # The connection is supplied read-only by the CLI. Load entire generations:
+    # clipping a chain before validation could hide a missing or invalid packet.
+    generation_ids = [r[0] for r in db.execute(
+        'SELECT DISTINCT generation FROM audit_packets_v1 WHERE end_ts > ? AND end_ts <= ?',
+        (start.isoformat(), end.isoformat()))]
+    candidates = []
+    for generation in generation_ids:
+        rows = db.execute('SELECT payload,config_hash FROM audit_packets_v1 WHERE generation=? ORDER BY sequence', (generation,)).fetchall()
+        try:
+            if db.execute('SELECT 1 FROM audit_faults_v1 WHERE generation=? LIMIT 1', (generation,)).fetchone():
+                continue
+            if any(row[1] != fingerprint for row in rows):
+                continue
+            packets = [json.loads(row[0]) for row in rows]
+            consume(collector_config, packets)
+            for packet in packets:
+                a, b = timestamp(packet['processing_start']), timestamp(packet['processing_end'])
+                if start <= a < b <= end:
+                    candidates.append((a, b, packet))
+        except (ValueError, KeyError, TypeError, AttributeError, ArithmeticError):
+            continue
+    # All packets involved in any overlap are rejected, even across generations.
+    candidates.sort(key=lambda x: (x[0], x[1]))
+    overlapping = set()
+    active = []
+    for i, (a, b, _) in enumerate(candidates):
+        active = [(j, finish) for j, finish in active if finish > a]
+        for j, _ in active:
+            overlapping.update((i, j))
+        active.append((i, b))
+    energy = {name: {'import_kwh': {'normal': Decimal(0), 'offpeak': Decimal(0)},
+                     'export_kwh': Decimal(0)} for name in ('without', 'with')}
+    seconds = Decimal(0)
+    for i, (a, b, packet) in enumerate(candidates):
+        if i in overlapping:
+            continue
+        duration = b - a
+        seconds += Decimal(duration.days * 86400 + duration.seconds) + Decimal(duration.microseconds) / Decimal(1000000)
+        tariff = collector_config['tariff_mapping'][packet['tariff_after']['code']]
+        for name, key in (('without', 'measured'), ('with', 'simulated')):
+            before, after = packet[key + '_before'], packet[key + '_after']
+            energy[name]['import_kwh'][tariff] += nonnegative(after['import']) - nonnegative(before['import'])
+            energy[name]['export_kwh'] += nonnegative(after['export']) - nonnegative(before['export'])
+    if seconds == 0:
+        return {'status': 'unavailable', 'reason': 'Geen gevalideerde meeturen in deze periode',
+                'classification': 'Indicatieve simulatie met 2027-aannames',
+                'period_start': start.isoformat(), 'period_end': end.isoformat(),
+                'valid_hours': '0.00', 'coverage_percent': '0.00'}
+    totals = scenario_2027_totals(config, energy)
+    return {'status': 'ok', 'classification': 'Indicatieve simulatie met 2027-aannames',
+            'period_start': start.isoformat(), 'period_end': end.isoformat(),
+            'valid_hours': str((seconds / Decimal(3600)).quantize(Decimal('.01'), rounding=ROUND_HALF_UP)),
+            'coverage_percent': str((seconds * 100 / Decimal(336 * 3600)).quantize(Decimal('.01'), rounding=ROUND_HALF_UP)),
+            'without_eur': money(totals['without']), 'with_eur': money(totals['with']),
+            'saving_eur': money(totals['without'] - totals['with'])}
+
+
+def scenario_2027_14d_report(config, collector_config, db, end):
+    try:
+        return scenario_2027_14d(config, collector_config, db, end)
+    except (Unavailable, KeyError, TypeError, ValueError, sqlite3.Error) as exc:
         return {'status': 'unavailable', 'reason': str(exc),
                 'classification': 'Indicatieve simulatie met 2027-aannames'}
 
@@ -280,13 +363,27 @@ def report(config, observation):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=Path, required=True)
-    parser.add_argument('--input', type=Path, required=True)
+    parser.add_argument('--input', type=Path)
+    parser.add_argument('--scenario-2027-14d', action='store_true')
+    parser.add_argument('--collector-config', type=Path)
+    parser.add_argument('--audit-database', type=Path)
     parser.add_argument('--scenario-2027', action='store_true')
     args = parser.parse_args()
     try:
-        calculate_report = scenario_2027_report if args.scenario_2027 else report
-        result = calculate_report(json.loads(args.config.read_text()), json.loads(args.input.read_text()))
-    except (OSError, ValueError) as exc:
+        config = json.loads(args.config.read_text())
+        if args.scenario_2027_14d:
+            if not args.collector_config or not args.audit_database:
+                raise ValueError('Collector config and audit database required')
+            collector_config = json.loads(args.collector_config.read_text())
+            with sqlite3.connect(args.audit_database.resolve().as_uri() + '?mode=ro', uri=True) as db:
+                db.execute('BEGIN')
+                result = scenario_2027_14d_report(config, collector_config, db, datetime.now(ZoneInfo('UTC')))
+        else:
+            if not args.input:
+                raise ValueError('Observation input required')
+            calculate_report = scenario_2027_report if args.scenario_2027 else report
+            result = calculate_report(config, json.loads(args.input.read_text()))
+    except (OSError, ValueError, sqlite3.Error) as exc:
         result = {'status': 'unavailable', 'reason': str(exc),
                   'without_eur': None, 'with_eur': None,
                   'without_variable_eur': None, 'with_variable_eur': None,

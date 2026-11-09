@@ -188,7 +188,7 @@ async def async_setup(hass, config):
 async def async_setup_entry(hass, entry) -> bool:
     """Set up battery platforms from a Config Flow Entry."""
     hass.data.setdefault(DOMAIN, {})
-
+    
     _LOGGER.debug("Setup %s.%s", DOMAIN, entry.data[CONF_NAME])
 
     handle = SimulatedBatteryHandle(entry.data, hass, entry.entry_id)
@@ -1057,15 +1057,15 @@ class SimulatedBatteryHandle:
 
     def set_slider_limit(self, value: float, key: str):
         """Called by slider to update internal charge limit."""
-        if key == "charge_limit":
+        if key == "charge_limit":        
             self._charge_limit = value
-        elif key == "discharge_limit":
+        elif key == "discharge_limit":        
             self._discharge_limit = value
-        elif key == "minimum_soc":
+        elif key == "minimum_soc":        
             self._minimum_soc = max(
                 float(value), self.minimum_user_selectable_soc_percentage
             )
-        elif key == "maximum_soc":
+        elif key == "maximum_soc":        
             self._maximum_soc = value
         else:
             _LOGGER.error("Unknown slider type in __init__.py")
@@ -1255,7 +1255,7 @@ class SimulatedBatteryHandle:
         available_capacity_to_discharge = max(
             float(self._charge_state) - min_discharge_soc_capacity, 0
         )
-
+        
         if self._switches[PAUSE_BATTERY] or self._battery_mode == PAUSE_BATTERY:
             _LOGGER.debug("(%s) Battery paused.", self._name)
             amount_to_charge = 0.0
