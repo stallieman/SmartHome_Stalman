@@ -41,6 +41,26 @@
       "kind": "total_increasing",
       "share_with_ai": false,
       "share_with_telegram": false
+    },
+    {
+      "id": "tapo_kantoor",
+      "entity_id": "sensor.tapo_p115_kantoor_today_s_consumption",
+      "statistic_id": "sensor.tapo_p115_kantoor_today_s_consumption",
+      "label": "Kantoor",
+      "unit": "kWh",
+      "kind": "total_increasing",
+      "share_with_ai": true,
+      "share_with_telegram": true
+    },
+    {
+      "id": "tapo_media",
+      "entity_id": "sensor.tapo_p115_media_today_s_consumption",
+      "statistic_id": "sensor.tapo_p115_media_today_s_consumption",
+      "label": "Mediahoek",
+      "unit": "kWh",
+      "kind": "total_increasing",
+      "share_with_ai": true,
+      "share_with_telegram": true
     }
   ],
   "ai": {
