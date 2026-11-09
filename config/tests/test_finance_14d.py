@@ -9,7 +9,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
 sys.path.insert(0, str(ROOT / 'energy_finance'))
-from batch_contract import SOURCE_SHA
+from batch_contract import SOURCE_SHA, consume, consume_prefix
+from collector import InvalidSample
+from compare import scenario_2027_totals
 from collector import encoded
 from compare import scenario_2027_14d_report
 
@@ -22,6 +24,7 @@ class RollingScenarioTests(unittest.TestCase):
         self.fingerprint = hashlib.sha256(encoded(self.policy).encode()).hexdigest()
         self.now = datetime(2026, 11, 9, 12, tzinfo=timezone.utc)
         self.db = sqlite3.connect(':memory:')
+        self.addCleanup(self.db.close)
         self.db.executescript('CREATE TABLE audit_packets_v1 (generation TEXT, sequence INTEGER, payload TEXT, config_hash TEXT, end_ts TEXT); CREATE TABLE audit_faults_v1 (generation TEXT);')
 
     def packet(self, generation, start, duration=3600, delta='1', simulated='0.5'):
@@ -85,6 +88,81 @@ class RollingScenarioTests(unittest.TestCase):
         p['sequence'] = 2
         self.add(p)
         self.assertEqual(self.result()['status'], 'unavailable')
+
+    def chain(self, numbers):
+        """Build actual adjacent counter boundaries; skipped numbers leave a real gap."""
+        from decimal import Decimal
+        first = self.now - timedelta(minutes=40)
+        result = []
+        for number in numbers:
+            start = first + timedelta(minutes=number - 1)
+            packet = self.packet('chain', start, duration=60)
+            packet['sequence'] = number
+            before = Decimal('10') + Decimal(number - 1)
+            after = before + 1
+            sim_before = Decimal('10') + Decimal(number - 1) / 2
+            sim_after = sim_before + Decimal('0.5')
+            packet['measured_before']['import'] = str(before)
+            packet['measured_after']['import'] = str(after)
+            packet['tariff_registers_before']['import']['1'] = str(before)
+            packet['tariff_registers_after']['import']['1'] = str(after)
+            packet['simulated_before']['import'] = format(sim_before, '.1f')
+            packet['simulated_after']['import'] = format(sim_after, '.1f')
+            packet['accepted_events'][0]['old']['counter'] = str(before)
+            packet['accepted_events'][0]['new']['counter'] = str(after)
+            result.append(packet)
+        return result
+
+    def test_missing_35_36_admits_only_valid_prefix_and_coverage(self):
+        packets = self.chain(list(range(1, 35)) + [37, 38])
+        for packet in packets:
+            self.add(packet)
+        result = self.result()
+        self.assertEqual(result['status'], 'ok')
+        self.assertEqual(result['valid_hours'], '0.57')
+        self.assertEqual(result['coverage_percent'], '0.17')
+        self.assertEqual(result['without_eur'], '9.84')
+        self.assertEqual(result['with_eur'], '4.92')
+        self.assertEqual(result['saving_eur'], '4.92')
+        report, admitted = consume_prefix(self.policy, packets)
+        self.assertEqual([p['sequence'] for p in admitted], list(range(1, 35)))
+        self.assertEqual(report['observed_until'], packets[33]['processing_end'])
+
+    def test_duplicate_sequence_invalidates_generation(self):
+        packets = self.chain([1, 2, 2, 3])
+        with self.assertRaises(InvalidSample):
+            consume_prefix(self.policy, packets)
+        for packet in packets:
+            self.add(packet)
+        self.assertEqual(self.result()['status'], 'unavailable')
+
+    def test_prefix_keeps_all_normal_validation(self):
+        for field in ('reset', 'tariff', 'battery', 'identity'):
+            with self.subTest(field=field):
+                packets = self.chain([1, 2, 4])
+                if field == 'reset':
+                    packets[1]['accepted_events'][0]['new']['reset'] = 'reset'
+                elif field == 'tariff':
+                    packets[1]['tariff_after']['code'] = '2'
+                elif field == 'battery':
+                    packets[1]['simulated_before']['import'] = '999'
+                else:
+                    packets[1]['helper_sha256'] = 'wrong'
+                with self.assertRaises(InvalidSample):
+                    consume_prefix(self.policy, packets)
+
+    def test_configuration_change_in_suffix_rejects_generation(self):
+        for packet in self.chain([1, 2, 4]):
+            self.add(packet, 'other' if packet['sequence'] == 4 else None)
+        self.assertEqual(self.result()['status'], 'unavailable')
+
+    def test_complete_chain_has_identical_unrounded_totals(self):
+        packets = self.chain([1, 2, 3, 4])
+        prior = consume(self.policy, packets)
+        actual, admitted = consume_prefix(self.policy, packets)
+        self.assertEqual(actual, prior)
+        self.assertEqual(scenario_2027_totals(self.config, actual), scenario_2027_totals(self.config, prior))
+        self.assertEqual(admitted, packets)
 
     def test_audit_disabled_is_unavailable(self):
         self.policy['audit']['enabled'] = False

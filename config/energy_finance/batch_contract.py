@@ -112,3 +112,23 @@ def consume(config, batches):
             'coverage_confirmed': True, 'paired_grid_deltas_confirmed': True,
             'billing_period_complete': False,
             'classification': 'certified simulator processing window; not whole-day or invoice costs'}
+
+
+def consume_prefix(config, batches):
+    """Validate the contiguous prefix from sequence one; never re-anchor after a gap.
+
+    Duplicate or out-of-order numbers invalidate the generation, including its
+    prefix. All other existing checks are applied unchanged by consume().
+    """
+    require(bool(batches), 'no_audit_batches')
+    sequences = [batch['sequence'] for batch in batches]
+    require(all(type(n) is int and n > 0 for n in sequences), 'invalid_sequence')
+    require(all(a < b for a, b in zip(sequences, sequences[1:])), 'duplicate_or_out_of_order_batch')
+    prefix_length = 0
+    for number in sequences:
+        if number != prefix_length + 1:
+            break
+        prefix_length += 1
+    require(prefix_length > 0, 'missing_first_batch')
+    prefix = batches[:prefix_length]
+    return consume(config, prefix), prefix

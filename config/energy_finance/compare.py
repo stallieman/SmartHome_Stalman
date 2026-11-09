@@ -275,8 +275,8 @@ def scenario_2027_report(config, observation):
 
 
 def scenario_2027_14d(config, collector_config, db, end):
-    """Validate whole generations and price only complete, nonoverlapping packets."""
-    from batch_contract import consume
+    """Validate anchored prefixes and price only complete, nonoverlapping packets."""
+    from batch_contract import consume_prefix
     from collector import encoded, timestamp
     require(end.tzinfo is not None, 'Window end needs timezone')
     end = end.astimezone(ZoneInfo('UTC'))
@@ -284,7 +284,7 @@ def scenario_2027_14d(config, collector_config, db, end):
     fingerprint = hashlib.sha256(encoded(collector_config).encode()).hexdigest()
     require(collector_config.get('audit', {}).get('enabled') is True, 'Audit is disabled')
     # The connection is supplied read-only by the CLI. Load entire generations:
-    # clipping a chain before validation could hide a missing or invalid packet.
+    # A gap ends the validated prefix; later packets cannot re-anchor here.
     generation_ids = [r[0] for r in db.execute(
         'SELECT DISTINCT generation FROM audit_packets_v1 WHERE end_ts > ? AND end_ts <= ?',
         (start.isoformat(), end.isoformat()))]
@@ -297,8 +297,8 @@ def scenario_2027_14d(config, collector_config, db, end):
             if any(row[1] != fingerprint for row in rows):
                 continue
             packets = [json.loads(row[0]) for row in rows]
-            consume(collector_config, packets)
-            for packet in packets:
+            _, admitted = consume_prefix(collector_config, packets)
+            for packet in admitted:
                 a, b = timestamp(packet['processing_start']), timestamp(packet['processing_end'])
                 if start <= a < b <= end:
                     candidates.append((a, b, packet))
